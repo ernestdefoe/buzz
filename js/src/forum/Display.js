@@ -28,7 +28,7 @@ const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce
 // Cookie banners too: ernestdefoe/advanced-cookie-consent's, and the common
 // third-party ones (Cookie Consent, OneTrust, Cookiebot, generic ids).
 const OBSTACLES = [
-  '.AlertManager .Alert, .Composer, .MobileTab-bar, .pl-peek, .pl-dock > *, #bespoke-totop, .Bespoke-toTop',
+  '.AlertManager .Alert, .Composer, .MobileTab-bar, .pl-peek, .pl-dock > *, #bespoke-totop, .Bespoke-toTop, #bespoke-launcher',
   '.CookieBanner, .cc-window, .cc-banner, #onetrust-banner-sdk, #CybotCookiebotDialog, #cookie-banner, .cookie-banner',
 ].join(', ');
 
