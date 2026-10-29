@@ -145,7 +145,7 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
 
             $served = $this->poll(null, ['after' => 0])['body']['events'];
             $this->assertCount(1, $served);
-            $this->assertSame("\u{1} earned the Helper badge", $served[0]['text']);
+            $this->assertSame("\u{1} earned the \u{2}Helper\u{2} badge", $served[0]['text']);
             $this->assertSame('fas fa-award', $served[0]['icon']);
         }
 
@@ -162,7 +162,7 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
             $hook(new \Ernestdefoe\Ladder\Notification\PromotedBlueprint(Group::find(11)), [$user]);
 
             $served = $this->poll(null, ['after' => 0])['body']['events'];
-            $this->assertSame(["\u{1} reached the rank Veteran"], array_column($served, 'text'));
+            $this->assertSame(["\u{1} reached the rank \u{2}Veteran\u{2}"], array_column($served, 'text'));
         }
 
         #[Test]
@@ -204,7 +204,7 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
 
             $served = $this->poll(null, ['after' => 0])['body']['events'];
             $this->assertCount(1, $served);
-            $this->assertSame('Someone bought Parley Calls', $served[0]['text']);
+            $this->assertSame("Someone bought \u{2}Parley Calls\u{2}", $served[0]['text']);
             $this->assertNull($served[0]['user'], 'no name, avatar or profile link');
             $this->assertSame('/extensions/parley-calls', $served[0]['url']);
         }

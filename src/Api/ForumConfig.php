@@ -48,6 +48,8 @@ class ForumConfig
             'profileLink' => $s->bool('profile_link', true),
             'interval' => $s->interval(),
             'seconds' => $s->int('display_seconds', 6, 3, 30),
+            // Cards on screen at once (desktop; phones always one), as Invision's "Max concurrent toasts".
+            'maxToasts' => $s->int('max_toasts', 2, 1, 5),
             'pages' => $s->get('pages', 'all') === 'home' ? 'home' : 'all',
             'hideComposing' => $s->bool('hide_composing', true),
             'recent' => $s->int('recent_on_load', 0, 0, 3),

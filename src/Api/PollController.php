@@ -25,6 +25,9 @@ use Psr\Http\Server\RequestHandlerInterface;
  */
 class PollController implements RequestHandlerInterface
 {
+    /** Bumped whenever the events' format changes (2: subjects marked for bold). */
+    private const FORMAT = 2;
+
     public function __construct(private Feed $feed)
     {
     }
@@ -37,7 +40,8 @@ class PollController implements RequestHandlerInterface
         $after = isset($query['after']) && is_numeric($query['after']) ? max(0, (int) $query['after']) : null;
         $recent = min(3, max(0, (int) ($query['recent'] ?? 0)));
 
-        $etag = '"buzz-'.$latest.'-'.($after ?? 'n'.$recent).'-'.($actor->isGuest() ? 'g' : $actor->id).'"';
+        // FORMAT changes when the answer's shape does, so a browser's cached copy from before an update is not reused.
+        $etag = '"buzz-'.self::FORMAT.'-'.$latest.'-'.($after ?? 'n'.$recent).'-'.($actor->isGuest() ? 'g' : $actor->id).'"';
 
         if (trim($request->getHeaderLine('If-None-Match')) === $etag) {
             return new EmptyResponse(304, ['ETag' => $etag, 'Cache-Control' => 'private, no-cache']);

@@ -12,6 +12,15 @@ import extractText from 'flarum/common/utils/extractText';
  */
 
 const MARK = '\u0001';
+const SUBJECT = '\u0002';
+
+/** Text with its subject (a title, a rank…) in bold: the server marks it with SUBJECT. */
+function withSubject(node, text) {
+  String(text)
+    .split(SUBJECT)
+    .forEach((part, i) => part && node.appendChild(i % 2 ? el('strong', 'Buzz-subject', part) : document.createTextNode(part)));
+  return node;
+}
 const MAX_QUEUE = 20;
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -91,7 +100,139 @@ export default class Display {
     if (!this.allowedHere()) return;
     this.queue.push(...events);
     if (this.queue.length > MAX_QUEUE) this.queue.splice(0, this.queue.length - MAX_QUEUE);
+    if (this.cfg.style === 'toast') return this.fill();
     if (!this.current) this.next();
+  }
+
+  // ── Bottom toast: a stack of small cards, as Invision's Live Activity ─────
+
+  /** Cards on screen at once: the admin's number on a computer, one on a phone. */
+  maxToasts() {
+    return window.innerWidth < 768 ? 1 : Math.max(1, this.cfg.maxToasts || 2);
+  }
+
+  /** Bring on queued events while there is room, oldest first; new cards slide up at the bottom. */
+  fill() {
+    clearTimeout(this.fillTimer);
+    if (!this.allowedHere()) {
+      this.queue = [];
+      return;
+    }
+    // Writing a post: wait, and look again in a moment.
+    if (this.held()) {
+      this.fillTimer = setTimeout(() => this.fill(), 2000);
+      return;
+    }
+    this.active = this.active || [];
+    while (this.active.length < this.maxToasts() && this.queue.length) this.showToast(this.queue.shift());
+  }
+
+  showToast(event) {
+    const item = { node: this.toast(event) };
+    this.active.push(item);
+    this.root.appendChild(item.node);
+    this.root.hidden = false;
+    this.place();
+    clearInterval(this.watch);
+    // Alerts, the composer and chat panels come and go while a card is up.
+    this.watch = setInterval(this.place, 500);
+    // Next frame, so the entrance transition runs.
+    requestAnimationFrame(() => item.node.classList.add('is-in'));
+    this.time(item, this.cfg.seconds * 1000);
+  }
+
+  time(item, ms) {
+    item.remaining = ms;
+    item.startedAt = Date.now();
+    if (!this.paused) item.timer = setTimeout(() => this.dismiss(item), ms);
+  }
+
+  dismiss(item) {
+    clearTimeout(item.timer);
+    const i = this.active.indexOf(item);
+    if (i === -1) return;
+    this.active.splice(i, 1);
+    item.node.classList.remove('is-in');
+    setTimeout(
+      () => {
+        item.node.remove();
+        if (!this.active.length && !this.queue.length) this.hide();
+        this.place();
+      },
+      reducedMotion() ? 0 : 250
+    );
+    this.fill();
+  }
+
+  /** One card: avatar (with the event's icon), the name on one line, what happened on the next. */
+  toast(event) {
+    const cfg = this.cfg;
+    const href = hrefFor(event);
+    const profile = cfg.profileLink && cfg.username ? profileHref(event.user) : null;
+    const card = el('div', 'Buzz-toast');
+    const text = String(event.text);
+    const named = text.includes(MARK);
+
+    const face = el('span', 'Buzz-face');
+    if (cfg.avatar && event.user) {
+      const avatar = event.user.avatar ? el('img', 'Buzz-avatar') : el('span', 'Buzz-avatar', (event.user.name || '?').charAt(0).toUpperCase());
+      if (event.user.avatar) {
+        avatar.src = event.user.avatar;
+        avatar.alt = '';
+        avatar.loading = 'lazy';
+      } else {
+        avatar.style.setProperty('--buzz-avatar', '#' + stringToColor(event.user.name || ''));
+      }
+      face.appendChild(avatar);
+      const badge = el('i', 'Buzz-badge ' + event.icon);
+      badge.setAttribute('aria-hidden', 'true');
+      face.appendChild(badge);
+    } else {
+      const icon = el('i', 'Buzz-avatar Buzz-avatar--icon ' + event.icon);
+      icon.setAttribute('aria-hidden', 'true');
+      face.appendChild(icon);
+    }
+    if (profile) {
+      const link = el('a', 'Buzz-faceLink');
+      link.href = profile;
+      link.setAttribute('aria-label', event.user.name);
+      link.addEventListener('click', (e) => navigate(e, profile));
+      link.appendChild(face);
+      card.appendChild(link);
+    } else {
+      card.appendChild(face);
+    }
+
+    const body = el('div', 'Buzz-body');
+    if (named) {
+      const name = cfg.username && event.user ? event.user.name : trans('someone');
+      const nameNode = el(profile ? 'a' : 'strong', 'Buzz-name', name);
+      if (profile) {
+        nameNode.href = profile;
+        nameNode.addEventListener('click', (e) => navigate(e, profile));
+      }
+      body.appendChild(nameNode);
+    }
+    const what = named ? text.split(MARK).join('').trim() : text;
+    const action = withSubject(el(href ? 'a' : 'span', 'Buzz-action'), what);
+    if (href) {
+      action.href = href;
+      action.addEventListener('click', (e) => navigate(e, href));
+    }
+    body.appendChild(action);
+    card.appendChild(body);
+
+    const close = el('button', 'Buzz-close');
+    close.type = 'button';
+    close.setAttribute('aria-label', trans('close'));
+    close.appendChild(el('i', 'fas fa-times'));
+    close.addEventListener('click', () => {
+      const item = this.active.find((a) => a.node === card);
+      if (item) this.dismiss(item);
+    });
+    card.appendChild(close);
+
+    return card;
   }
 
   allowedHere() {
@@ -147,6 +288,19 @@ export default class Display {
   }
 
   pause(paused) {
+    if (this.cfg.style === 'toast') {
+      if (this.paused === paused || !(this.active || []).length) return;
+      this.paused = paused;
+      this.active.forEach((item) => {
+        if (paused) {
+          clearTimeout(item.timer);
+          item.remaining = Math.max(1500, item.remaining - (Date.now() - item.startedAt));
+        } else {
+          this.time(item, item.remaining);
+        }
+      });
+      return;
+    }
     if (this.paused === paused || !this.current) return;
     this.paused = paused;
     this.root.classList.toggle('is-paused', paused);
@@ -161,6 +315,8 @@ export default class Display {
 
   close() {
     clearTimeout(this.timer);
+    (this.active || []).forEach((item) => clearTimeout(item.timer));
+    this.active = [];
     this.queue = [];
     this.current = null;
     this.paused = false;
@@ -218,7 +374,7 @@ export default class Display {
     // The text is split where the name goes; the name may be its own link.
     const parts = String(event.text).split(MARK);
     parts.forEach((part, i) => {
-      if (part) body.appendChild(document.createTextNode(part));
+      if (part) body.appendChild(document.createTextNode(part.split(SUBJECT).join('')));
       if (i === parts.length - 1) return;
       const name = cfg.username && event.user ? event.user.name : trans('someone');
       if (profile && cfg.username && event.user && href) {

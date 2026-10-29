@@ -58,6 +58,10 @@ ernestdefoe-buzz:
     show_username_label: Show usernames
     profile_link_label: Link usernames to profiles
     display_seconds_label: Seconds each event stays on screen
+    max_toasts_label: Toasts on screen at once
+    max_toasts_help: How many toasts can stack up at the same time on a computer. Phones always show one at a time.
+    mask_names_label: Mask names
+    mask_names_help: "Shows names as \"J…e\" instead of \"John Doe\", and turns off the link to the member's profile. The full name never leaves your server."
     pages_label: Show on
     pages:
       all: Every page

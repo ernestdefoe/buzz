@@ -39,6 +39,20 @@ class VisibilityTest extends BuzzTestCase
     }
 
     #[Test]
+    public function masked_names_never_leave_the_server_and_lose_their_profile_link(): void
+    {
+        $this->setting('ernestdefoe-buzz.mask_names', '1');
+        $this->boot();
+        $d = $this->startDiscussion(2, 'Hello world', [1]);
+        $this->reply(3, (int) $d['id']);
+
+        $events = $this->poll(null, ['after' => 0])['body']['events'];
+        $this->assertSame('m…r', $events[1]['user']['name'], '"moderator" becomes "m…r"');
+        $this->assertNull($events[1]['user']['slug']);
+        $this->assertStringNotContainsString('moderator', json_encode($events));
+    }
+
+    #[Test]
     public function a_public_discussion_and_reply_reach_guests_and_members(): void
     {
         $this->boot();
@@ -50,7 +64,7 @@ class VisibilityTest extends BuzzTestCase
         $this->assertSame($expected, $this->seen(2));
 
         $event = $this->poll(null, ['after' => 0])['body']['events'][1];
-        $this->assertSame("\u{1} replied to Hello world", $event['text']);
+        $this->assertSame("\u{1} replied to \u{2}Hello world\u{2}", $event['text']);
         $this->assertSame('moderator', $event['user']['name']);
         $this->assertSame('discussion.near', $event['route']['name']);
         $this->assertSame(2, $event['route']['params']['near']);

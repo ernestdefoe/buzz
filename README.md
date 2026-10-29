@@ -6,18 +6,20 @@ New discussions, replies and members pop up across your whole forum as they happ
 
 Every visitor only ever sees what they could already see. Buzz checks that on the server, for each viewer, every time.
 
-![A toast in the bottom corner](screenshots/toast.png)
+![Small toasts stacked in the bottom corner: a round avatar, the member's name, and what they did](screenshots/toast.png)
 
 ## What it does
 
-- **Bottom toast**, left or right, with your own distance from the edges. It moves up out of the way of Flarum's alerts, the composer, Mobile Tab's bottom bar and Parley's chat panels.
-- **Top ticker** under the header, in two modes: **slide down** (one event at a time) or **marquee** (everything new scrolls past once). It finds the bottom of whatever header you run, core's or a theme's, and steps aside when the phone menu is open.
-- **One at a time.** Events queue up and each stays on screen for as long as you choose. A burst of the same kind becomes one line and "+4 more". Hover or focus pauses it; the close button clears it.
-- **Click to open.** The text opens the discussion, reply, quiz or collection; the avatar and name open the member's profile. Avatars, names and profile links can each be switched off.
+- **Bottom toasts**, left or right, with your own distance from the edges. Each is a small card: a round avatar with the event's icon on its corner, the member's name, and what they did with its subject in bold ("started **What are you reading this week?**"). New ones slide up from the bottom and stack, up to the number you choose (2 by default; phones show one at a time), and each leaves on its own timer. They move up out of the way of Flarum's alerts, the composer, cookie banners, Mobile Tab's bottom bar and Parley's chat panels.
+- **Top ticker** under the header, in two modes: **slide down** (one event at a time) or **marquee** (everything new scrolls past once). It finds the bottom of whatever header you run, core's or a theme's, and steps aside when the phone menu is open. A burst of the same kind becomes one line and "+4 more".
+- **Hover or focus pauses** the toasts; each has its own close button.
+- **Click to open.** The text opens the discussion, reply, quiz or collection; the avatar and name open the member's profile. Avatars, names and profile links can each be switched off, and names can be masked ("J…e"); a masked name never leaves your server.
 - **Starts from now.** Opening a page never replays a backlog. If you like, show up to three events from the last hour for context.
 - **Where it shows.** Every page or the discussion list only, and it waits while a member is writing a post.
 - **Respects reduced motion.** With "reduce motion" on, the marquee becomes a still, one-at-a-time ticker and nothing slides.
 - Works on the default theme and themes like Bespoke, light and dark, on desktop and phones.
+
+<img src="screenshots/toast-phone.png" alt="On a phone, one toast at a time across the bottom" width="390">
 
 ![The ticker under the header](screenshots/ticker.png)
 

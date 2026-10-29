@@ -29,6 +29,9 @@ class Feed
     /** The character the text carries where the member's name goes. */
     public const USER_MARK = "\u{1}";
 
+    /** Around the event's subject in its text, which the card shows in bold. */
+    public const SUBJECT_MARK = "\u{2}";
+
     public const MAX = 20;
 
     public function __construct(
@@ -207,6 +210,12 @@ class Feed
             $data = $row->data ?? [];
             $anonymous = ! empty($data['anonymous']) || ! $row->user_id;
             $params = (array) ($data['params'] ?? []);
+            // What the event is about (a title, a rank, a quiz) is marked so the card can set it in bold.
+            foreach ($params as $key => $value) {
+                if (is_string($value) && $value !== '') {
+                    $params[$key] = self::SUBJECT_MARK.str_replace([self::SUBJECT_MARK, self::USER_MARK], '', $value).self::SUBJECT_MARK;
+                }
+            }
             $params['user'] = $anonymous ? $someone : self::USER_MARK;
 
             $user = null;
@@ -219,10 +228,12 @@ class Feed
                     $model->setAttribute('nickname', $row->getAttribute('buzz_nickname'));
                 }
 
+                // Masked here, not in the browser, so the full name never leaves the server.
+                $masked = $this->settings->bool('mask_names', false);
                 $user = [
-                    'name' => $model->display_name,
+                    'name' => $masked ? self::mask((string) $model->display_name) : $model->display_name,
                     'avatar' => $model->avatar_url,
-                    'slug' => $this->slugs->forResource(User::class)->toSlug($model),
+                    'slug' => $masked ? null : $this->slugs->forResource(User::class)->toSlug($model),
                 ];
             }
 
@@ -239,5 +250,14 @@ class Feed
         }
 
         return $out;
+    }
+
+    /** "John Doe" → "J…e", as Invision's Live Activity masks names. */
+    public static function mask(string $name): string
+    {
+        $chars = mb_str_split(trim($name));
+        $n = count($chars);
+
+        return $n <= 2 ? ($chars[0] ?? '').'…' : $chars[0].'…'.$chars[$n - 1];
     }
 }

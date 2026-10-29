@@ -86,7 +86,16 @@ app.initializers.add('ernestdefoe-buzz', () => {
     .registerSetting({ setting: 'ernestdefoe-buzz.show_avatar', type: 'boolean', label: t('show_avatar_label') })
     .registerSetting({ setting: 'ernestdefoe-buzz.show_username', type: 'boolean', label: t('show_username_label') })
     .registerSetting({ setting: 'ernestdefoe-buzz.profile_link', type: 'boolean', label: t('profile_link_label') })
+    .registerSetting({ setting: 'ernestdefoe-buzz.mask_names', type: 'boolean', label: t('mask_names_label'), help: t('mask_names_help') })
     .registerSetting({ setting: 'ernestdefoe-buzz.display_seconds', type: 'number', label: t('display_seconds_label'), min: 3, max: 30 })
+    .registerSetting({
+      setting: 'ernestdefoe-buzz.max_toasts',
+      type: 'number',
+      label: t('max_toasts_label'),
+      help: t('max_toasts_help'),
+      min: 1,
+      max: 5,
+    })
     .registerSetting({
       setting: 'ernestdefoe-buzz.pages',
       type: 'select',

@@ -63,6 +63,8 @@ return [
         ->default('ernestdefoe-buzz.profile_link', true)
         ->default('ernestdefoe-buzz.interval', 30)
         ->default('ernestdefoe-buzz.display_seconds', 6)
+        ->default('ernestdefoe-buzz.max_toasts', 2)
+        ->default('ernestdefoe-buzz.mask_names', false)
         ->default('ernestdefoe-buzz.pages', 'all')
         ->default('ernestdefoe-buzz.hide_composing', true)
         ->default('ernestdefoe-buzz.recent_on_load', 0)
