@@ -120,12 +120,18 @@ class PollTest extends BuzzTestCase
         $this->boot();
         $this->record(2);
 
-        [, $first] = $this->queriesFor(fn () => $this->poll(null, ['after' => 0]));
-        [, $second] = $this->queriesFor(fn () => $this->poll(null, ['after' => 1]));
+        $ids = [];
+        [, $first] = $this->queriesFor(function () use (&$ids) {
+            $ids = array_column($this->poll(null, ['after' => 0])['body']['events'], 'id');
+        });
+        $this->assertCount(2, $ids);
+
+        // Ids from the answer: on MySQL and PostgreSQL they don't restart at 1 between tests.
+        [, $second] = $this->queriesFor(fn () => $this->poll(null, ['after' => $ids[0]]));
 
         $this->assertSame(1, $first);
         $this->assertSame(0, $second, 'a second guest (another cursor) costs no buzz query');
-        $this->assertCount(1, $this->poll(null, ['after' => 1])['body']['events']);
+        $this->assertSame([$ids[1]], array_column($this->poll(null, ['after' => $ids[0]])['body']['events'], 'id'));
     }
 
     #[Test]
