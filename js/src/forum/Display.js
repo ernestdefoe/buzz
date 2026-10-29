@@ -16,7 +16,12 @@ const MAX_QUEUE = 20;
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // Things fixed to the bottom of the screen a toast must sit above.
-const OBSTACLES = '.AlertManager .Alert, .Composer, .MobileTab-bar, .pl-peek, .pl-dock > *, #bespoke-totop, .Bespoke-toTop';
+// Cookie banners too: ernestdefoe/advanced-cookie-consent's, and the common
+// third-party ones (Cookie Consent, OneTrust, Cookiebot, generic ids).
+const OBSTACLES = [
+  '.AlertManager .Alert, .Composer, .MobileTab-bar, .pl-peek, .pl-dock > *, #bespoke-totop, .Bespoke-toTop',
+  '.CookieBanner, .cc-window, .cc-banner, #onetrust-banner-sdk, #CybotCookiebotDialog, #cookie-banner, .cookie-banner',
+].join(', ');
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
