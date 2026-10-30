@@ -26,9 +26,11 @@ const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce
 
 // Things fixed to the bottom of the screen a toast must sit above.
 // Cookie banners too: ernestdefoe/advanced-cookie-consent's, and the common
-// third-party ones (Cookie Consent, OneTrust, Cookiebot, generic ids).
+// third-party ones (Cookie Consent, OneTrust, Cookiebot, generic ids), and
+// Quickdraw's floating button on discussion pages.
 const OBSTACLES = [
   '.AlertManager .Alert, .Composer, .MobileTab-bar, .pl-peek, .pl-dock > *, #bespoke-totop, .Bespoke-toTop, #bespoke-launcher',
+  '.Quickdraw:not(.is-hidden) .Quickdraw-fab',
   '.CookieBanner, .cc-window, .cc-banner, #onetrust-banner-sdk, #CybotCookiebotDialog, #cookie-banner, .cookie-banner',
 ].join(', ');
 
