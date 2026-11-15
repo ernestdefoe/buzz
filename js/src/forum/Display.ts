@@ -455,9 +455,13 @@ export default class Display {
    */
   watch(): void {
     if (this.observer) return;
-    this.observer = new MutationObserver(
-      (records) => records.some((record) => this.outside(record.target) && !this.scrollOnly(record)) && this.place()
-    );
+    this.observer = new MutationObserver((records) => {
+      // Only an element's first class record holds its class before the batch;
+      // compared with the class now, it covers every flip in between.
+      const seen = new Set<Node>();
+      const first = records.filter((record) => record.attributeName !== 'class' || (!seen.has(record.target) && !!seen.add(record.target)));
+      if (first.some((record) => this.outside(record.target) && !this.scrollOnly(record))) this.place();
+    });
     this.observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -477,16 +481,19 @@ export default class Display {
   }
 
   /**
-   * Toast only: Flarum flips `affix` and `scrolled` on the page as it scrolls,
-   * and the header animates when they do. Neither moves a bar at the bottom.
-   * The ticker sits under the header, so it still follows both.
+   * A class change that moves nothing: one that nets out to no change, or, for
+   * the toast, Flarum flipping `affix` and `scrolled` on the page as it scrolls
+   * (the header animates when they do; neither moves a bar at the bottom). The
+   * ticker sits under the header, so it still follows both.
    */
   scrollOnly(record: MutationRecord): boolean {
-    if (this.cfg.style !== 'toast' || record.attributeName !== 'class') return false;
+    if (record.attributeName !== 'class') return false;
     const before = new Set((record.oldValue || '').split(/\s+/).filter(Boolean));
     const after = new Set(((record.target as Element).getAttribute('class') || '').split(/\s+/).filter(Boolean));
     const changed = [...before, ...after].filter((name) => before.has(name) !== after.has(name));
-    return changed.length > 0 && changed.every((name) => SCROLL_CLASSES.includes(name));
+    // A record is read against the class the element has now, so one that nets
+    // out to no change (flipped and back in the same batch) moved nothing.
+    return changed.every((name) => this.cfg.style === 'toast' && SCROLL_CLASSES.includes(name));
   }
 
   settled(e: Event): void {
