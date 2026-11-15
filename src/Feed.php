@@ -127,22 +127,7 @@ class Feed
             ->select($columns)
             ->leftJoin('users', 'users.id', '=', 'buzz_events.user_id');
 
-        // The author: a confirmed, unsuspended member who has not opted out.
-        $query->where(function (Builder $q) {
-            $q->whereNull('buzz_events.user_id')->orWhere(function (Builder $q) {
-                $q->where('users.is_email_confirmed', true);
-
-                if ($this->extensions->isEnabled('flarum-suspend')) {
-                    $q->where(fn (Builder $q) => $q->whereNull('users.suspended_until')->orWhere('users.suspended_until', '<', Carbon::now('UTC')));
-                }
-
-                if ($this->settings->optIn()) {
-                    $q->where('users.buzz_share', true);
-                } else {
-                    $q->where(fn (Builder $q) => $q->whereNull('users.buzz_share')->orWhere('users.buzz_share', true));
-                }
-            });
-        });
+        $query->where(fn (Builder $q) => $this->whereAuthorShown($q));
 
         if ($actor->isGuest()) {
             $query->where('buzz_events.members_only', false);
@@ -154,26 +139,57 @@ class Feed
             self::whereExists($q, Post::query()->whereVisibleTo($actor), 'posts.id', 'buzz_events.post_id', 'or');
         });
 
-        $query->where(function (Builder $q) use ($types, $actor) {
-            $plain = [];
-
-            foreach ($types as $type) {
-                if ($type->scope) {
-                    $q->orWhere(function (Builder $q) use ($type, $actor) {
-                        $q->where('buzz_events.type', $type->key);
-                        ($type->scope)($q, $actor);
-                    });
-                } else {
-                    $plain[] = $type->key;
-                }
-            }
-
-            if ($plain) {
-                $q->orWhereIn('buzz_events.type', $plain);
-            }
-        });
+        $query->where(fn (Builder $q) => $this->whereTypeVisible($q, $types, $actor));
 
         return $query;
+    }
+
+    /**
+     * The author: a confirmed, unsuspended member who has not opted out.
+     *
+     * @param Builder<BuzzEvent> $q
+     */
+    private function whereAuthorShown(Builder $q): void
+    {
+        $q->whereNull('buzz_events.user_id')->orWhere(function (Builder $q) {
+            $q->where('users.is_email_confirmed', true);
+
+            if ($this->extensions->isEnabled('flarum-suspend')) {
+                $q->where(fn (Builder $q) => $q->whereNull('users.suspended_until')->orWhere('users.suspended_until', '<', Carbon::now('UTC')));
+            }
+
+            if ($this->settings->optIn()) {
+                $q->where('users.buzz_share', true);
+            } else {
+                $q->where(fn (Builder $q) => $q->whereNull('users.buzz_share')->orWhere('users.buzz_share', true));
+            }
+        });
+    }
+
+    /**
+     * Types this viewer may see; a type with its own scope adds that check to its rows.
+     *
+     * @param Builder<BuzzEvent> $q
+     * @param Type[] $types
+     */
+    private function whereTypeVisible(Builder $q, array $types, User $actor): void
+    {
+        $plain = [];
+
+        foreach ($types as $type) {
+            if ($type->scope) {
+                $q->orWhere(function (Builder $q) use ($type, $actor) {
+                    $q->where('buzz_events.type', $type->key);
+                    ($type->scope)($q, $actor);
+                });
+            } else {
+                $plain[] = $type->key;
+            }
+        }
+
+        if ($plain) {
+            $q->orWhereIn('buzz_events.type', $plain);
+        }
     }
 
     /**
@@ -209,33 +225,9 @@ class Feed
 
             $data = $row->data ?? [];
             $anonymous = ! empty($data['anonymous']) || ! $row->user_id;
-            $params = (array) ($data['params'] ?? []);
-            // What the event is about (a title, a rank, a quiz) is marked so the card can set it in bold.
-            foreach ($params as $key => $value) {
-                if (is_string($value) && $value !== '') {
-                    $params[$key] = self::SUBJECT_MARK.str_replace([self::SUBJECT_MARK, self::USER_MARK], '', $value).self::SUBJECT_MARK;
-                }
-            }
+            $params = self::markSubjects((array) ($data['params'] ?? []));
             $params['user'] = $anonymous ? $someone : self::USER_MARK;
-
-            $user = null;
-
-            if (! $anonymous) {
-                $model = new User();
-                $model->forceFill(['id' => $row->user_id, 'username' => $row->getAttribute('buzz_username'), 'avatar_url' => $row->getAttribute('buzz_avatar')]);
-
-                if ($row->getAttribute('buzz_nickname') !== null) {
-                    $model->setAttribute('nickname', $row->getAttribute('buzz_nickname'));
-                }
-
-                // Masked here, not in the browser, so the full name never leaves the server.
-                $masked = $this->settings->bool('mask_names', false);
-                $user = [
-                    'name' => $masked ? self::mask((string) $model->display_name) : $model->display_name,
-                    'avatar' => $model->avatar_url,
-                    'slug' => $masked ? null : $this->slugs->forResource(User::class)->toSlug($model),
-                ];
-            }
+            $user = $anonymous ? null : $this->author($row);
 
             $out[] = [
                 'id' => $row->id,
@@ -250,6 +242,47 @@ class Feed
         }
 
         return $out;
+    }
+
+    /**
+     * What the event is about (a title, a rank, a quiz) is marked so the card can set it in bold.
+     *
+     * @param array<mixed> $params
+     * @return array<mixed>
+     */
+    private static function markSubjects(array $params): array
+    {
+        foreach ($params as $key => $value) {
+            if (is_string($value) && $value !== '') {
+                $params[$key] = self::SUBJECT_MARK.str_replace([self::SUBJECT_MARK, self::USER_MARK], '', $value).self::SUBJECT_MARK;
+            }
+        }
+
+        return $params;
+    }
+
+    /**
+     * The member a row names, from the columns joined in: name, avatar and profile slug.
+     *
+     * @return array{name: string, avatar: string|null, slug: string|null}
+     */
+    private function author(BuzzEvent $row): array
+    {
+        $model = new User();
+        $model->forceFill(['id' => $row->user_id, 'username' => $row->getAttribute('buzz_username'), 'avatar_url' => $row->getAttribute('buzz_avatar')]);
+
+        if ($row->getAttribute('buzz_nickname') !== null) {
+            $model->setAttribute('nickname', $row->getAttribute('buzz_nickname'));
+        }
+
+        // Masked here, not in the browser, so the full name never leaves the server.
+        $masked = $this->settings->bool('mask_names', false);
+
+        return [
+            'name' => $masked ? self::mask((string) $model->display_name) : $model->display_name,
+            'avatar' => $model->avatar_url,
+            'slug' => $masked ? null : $this->slugs->forResource(User::class)->toSlug($model),
+        ];
     }
 
     /** "John Doe" → "J…e", as Invision's Live Activity masks names. */

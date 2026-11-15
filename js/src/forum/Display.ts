@@ -23,6 +23,8 @@ function withSubject<T extends HTMLElement>(node: T, text: string): T {
   return node;
 }
 const MAX_QUEUE = 20;
+/** Classes Flarum toggles on `.App` while the page scrolls. */
+const SCROLL_CLASSES = ['affix', 'scrolled'];
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // Things fixed to the bottom of the screen a toast must sit above.
@@ -48,7 +50,7 @@ function trans(key: string, params: Record<string, unknown> = {}): string {
 
 function hrefFor(event: BuzzEvent): string | null {
   const route = event.route;
-  if (route && app.routes[route.name]) {
+  if (route && route.name in app.routes) {
     try {
       return app.route(route.name, { ...route.params });
     } catch (e) {
@@ -69,6 +71,38 @@ function navigate(event: Event, href: string | null): void {
   if (!href || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   m.route.set(href);
+}
+
+/** Makes a node open href inside the app; no href, no link. */
+function linkTo<T extends HTMLElement>(node: T, href: string | null): T {
+  if (href) {
+    (node as unknown as HTMLAnchorElement).href = href;
+    node.addEventListener('click', (e) => navigate(e, href));
+  }
+  return node;
+}
+
+/** A link to the member's profile around their face. */
+function profileLink(className: string, user: BuzzUser, href: string, child: Node): HTMLAnchorElement {
+  const link = linkTo(el('a', className), href);
+  link.setAttribute('aria-label', user.name);
+  link.appendChild(child);
+  return link;
+}
+
+function icon(className: string): HTMLElement {
+  const node = el('i', className);
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}
+
+function closeButton(onclick: () => void): HTMLButtonElement {
+  const close = el('button', 'Buzz-close');
+  close.type = 'button';
+  close.setAttribute('aria-label', trans('close'));
+  close.appendChild(el('i', 'fas fa-times'));
+  close.addEventListener('click', onclick);
+  return close;
 }
 
 /** The member's picture, or their initial on a colour of their name. */
@@ -105,7 +139,8 @@ export default class Display {
   marquee: boolean;
   timer = 0;
   fillTimer = 0;
-  watch = 0;
+  /** Watches the page for bars coming and going while something is on screen. */
+  observer: MutationObserver | null = null;
   placing = 0;
   remaining = 0;
   startedAt = 0;
@@ -130,6 +165,7 @@ export default class Display {
     document.body.appendChild(root);
 
     this.place = this.place.bind(this);
+    this.settled = this.settled.bind(this);
     window.addEventListener('resize', this.place, { passive: true });
     if (cfg.style === 'ticker') window.addEventListener('scroll', this.place, { passive: true });
   }
@@ -171,9 +207,7 @@ export default class Display {
     this.root.appendChild(item.node);
     this.root.hidden = false;
     this.place();
-    clearInterval(this.watch);
-    // Alerts, the composer and chat panels come and go while a card is up.
-    this.watch = window.setInterval(this.place, 500);
+    this.watch();
     // Next frame, so the entrance transition runs.
     requestAnimationFrame(() => item.node.classList.add('is-in'));
     this.time(item, this.cfg.seconds * 1000);
@@ -205,64 +239,40 @@ export default class Display {
   /** One card: avatar (with the event's icon), the name on one line, what happened on the next. */
   toast(event: BuzzEvent): HTMLElement {
     const cfg = this.cfg;
-    const href = hrefFor(event);
     const profile = cfg.profileLink && cfg.username ? profileHref(event.user) : null;
     const card = el('div', 'Buzz-toast');
+
+    const face = el('span', 'Buzz-face');
+    if (cfg.avatar && event.user) face.append(avatarOf(event.user), icon('Buzz-badge ' + event.icon));
+    else face.appendChild(icon('Buzz-avatar Buzz-avatar--icon ' + event.icon));
+    card.appendChild(profile && event.user ? profileLink('Buzz-faceLink', event.user, profile, face) : face);
+
+    card.appendChild(this.toastBody(event, profile));
+    card.appendChild(
+      closeButton(() => {
+        const item = this.active.find((a) => a.node === card);
+        if (item) this.dismiss(item);
+      })
+    );
+
+    return card;
+  }
+
+  /** The name (when the text names someone) over what happened, its subject in bold. */
+  toastBody(event: BuzzEvent, profile: string | null): HTMLElement {
+    const body = el('div', 'Buzz-body');
     const text = String(event.text);
     const named = text.includes(MARK);
 
-    const face = el('span', 'Buzz-face');
-    if (cfg.avatar && event.user) {
-      face.appendChild(avatarOf(event.user));
-      const badge = el('i', 'Buzz-badge ' + event.icon);
-      badge.setAttribute('aria-hidden', 'true');
-      face.appendChild(badge);
-    } else {
-      const icon = el('i', 'Buzz-avatar Buzz-avatar--icon ' + event.icon);
-      icon.setAttribute('aria-hidden', 'true');
-      face.appendChild(icon);
-    }
-    if (profile && event.user) {
-      const link = el('a', 'Buzz-faceLink');
-      link.href = profile;
-      link.setAttribute('aria-label', event.user.name);
-      link.addEventListener('click', (e) => navigate(e, profile));
-      link.appendChild(face);
-      card.appendChild(link);
-    } else {
-      card.appendChild(face);
-    }
-
-    const body = el('div', 'Buzz-body');
     if (named) {
-      const name = cfg.username && event.user ? event.user.name : trans('someone');
-      const nameNode = el(profile ? 'a' : 'strong', 'Buzz-name', name);
-      if (profile) {
-        (nameNode as HTMLAnchorElement).href = profile;
-        nameNode.addEventListener('click', (e) => navigate(e, profile));
-      }
-      body.appendChild(nameNode);
+      const name = this.cfg.username && event.user ? event.user.name : trans('someone');
+      body.appendChild(linkTo(el(profile ? 'a' : 'strong', 'Buzz-name', name), profile));
     }
+    const href = hrefFor(event);
     const what = named ? text.split(MARK).join('').trim() : text;
-    const action = withSubject(el(href ? 'a' : 'span', 'Buzz-action'), what);
-    if (href) {
-      (action as HTMLAnchorElement).href = href;
-      action.addEventListener('click', (e) => navigate(e, href));
-    }
-    body.appendChild(action);
-    card.appendChild(body);
+    body.appendChild(linkTo(withSubject(el(href ? 'a' : 'span', 'Buzz-action'), what), href));
 
-    const close = el('button', 'Buzz-close');
-    close.type = 'button';
-    close.setAttribute('aria-label', trans('close'));
-    close.appendChild(el('i', 'fas fa-times'));
-    close.addEventListener('click', () => {
-      const item = this.active.find((a) => a.node === card);
-      if (item) this.dismiss(item);
-    });
-    card.appendChild(close);
-
-    return card;
+    return body;
   }
 
   allowedHere(): boolean {
@@ -377,87 +387,112 @@ export default class Display {
     });
   }
 
+  /** One ticker line: avatar, the event's icon, the text, and "+N more" for a burst. */
   card(event: BuzzEvent, more: number): HTMLElement {
-    const cfg = this.cfg;
     const href = hrefFor(event);
-    const profile = cfg.profileLink ? profileHref(event.user) : null;
+    const profile = this.cfg.profileLink ? profileHref(event.user) : null;
     const card = el('div', 'Buzz-card');
 
-    if (cfg.avatar && event.user) {
-      card.appendChild(avatarOf(event.user));
+    if (this.cfg.avatar && event.user) {
+      const avatar = avatarOf(event.user);
+      // The avatar opens the profile when the text opens the item.
+      card.appendChild(profile ? profileLink('Buzz-avatarLink', event.user, profile, avatar) : avatar);
     }
-
-    const icon = el('i', 'Buzz-icon ' + event.icon);
-    icon.setAttribute('aria-hidden', 'true');
-    card.appendChild(icon);
-
-    const body = el(href ? 'a' : 'span', 'Buzz-text');
-    if (href) {
-      (body as HTMLAnchorElement).href = href;
-      body.addEventListener('click', (e) => navigate(e, href));
-    }
-
-    // The text is split where the name goes; the name may be its own link.
-    const parts = String(event.text).split(MARK);
-    parts.forEach((part, i) => {
-      if (part) body.appendChild(document.createTextNode(part.split(SUBJECT).join('')));
-      if (i === parts.length - 1) return;
-      const name = cfg.username && event.user ? event.user.name : trans('someone');
-      if (profile && cfg.username && event.user && href) {
-        // No link inside a link: the name is bold text, the profile is reached from the avatar.
-        body.appendChild(el('strong', 'Buzz-user', name));
-      } else if (profile && cfg.username && event.user) {
-        const a = el('a', 'Buzz-user', name);
-        a.href = profile;
-        a.addEventListener('click', (e) => navigate(e, profile));
-        body.appendChild(a);
-      } else {
-        body.appendChild(el('strong', 'Buzz-user', name));
-      }
-    });
-    card.appendChild(body);
-
-    // The avatar opens the profile when the text opens the item.
-    const avatar = card.querySelector('.Buzz-avatar');
-    if (avatar && profile && event.user) {
-      const link = el('a', 'Buzz-avatarLink');
-      link.href = profile;
-      link.setAttribute('aria-label', event.user.name);
-      link.addEventListener('click', (e) => navigate(e, profile));
-      card.replaceChild(link, avatar);
-      link.appendChild(avatar);
-    }
-
+    card.appendChild(icon('Buzz-icon ' + event.icon));
+    card.appendChild(this.cardText(event, href, profile));
     if (more > 0) card.appendChild(el('span', 'Buzz-more', trans('more', { count: more })));
 
     return card;
+  }
+
+  /** The text, split where the name goes; the name may be its own link. */
+  cardText(event: BuzzEvent, href: string | null, profile: string | null): HTMLElement {
+    const body = linkTo(el(href ? 'a' : 'span', 'Buzz-text'), href);
+    const parts = String(event.text).split(MARK);
+    const name = this.cfg.username && event.user ? event.user.name : trans('someone');
+    // No link inside a link: under a linked text the name is bold, and the avatar opens the profile.
+    const nameLinks = !!profile && this.cfg.username && !!event.user && !href;
+
+    parts.forEach((part, i) => {
+      if (part) body.appendChild(document.createTextNode(part.split(SUBJECT).join('')));
+      if (i < parts.length - 1) body.appendChild(nameLinks ? linkTo(el('a', 'Buzz-user', name), profile) : el('strong', 'Buzz-user', name));
+    });
+
+    return body;
   }
 
   render(children: Node[]): void {
     const root = this.root;
     root.replaceChildren(...children);
 
-    const close = el('button', 'Buzz-close');
-    close.type = 'button';
-    close.setAttribute('aria-label', trans('close'));
-    close.appendChild(el('i', 'fas fa-times'));
-    close.addEventListener('click', () => this.close());
-    root.appendChild(close);
+    root.appendChild(closeButton(() => this.close()));
 
     root.hidden = false;
     this.place();
-    // Alerts, the composer and chat panels come and go while a card is up.
-    clearInterval(this.watch);
-    this.watch = window.setInterval(this.place, 500);
+    this.watch();
     // Next frame, so the entrance transition runs.
     requestAnimationFrame(() => root.hidden || root.classList.add('is-in'));
   }
 
   hide(): void {
-    clearInterval(this.watch);
+    this.unwatch();
     this.root.classList.remove('is-in');
     this.root.hidden = true;
     this.root.replaceChildren();
+  }
+
+  /** Something outside Buzz, and not the posts or the scrubber, which change on every scroll and never hold a bar. */
+  outside(node: Node | EventTarget | null): boolean {
+    const elm = node instanceof Element ? node : node instanceof Node ? node.parentElement : null;
+    return !!elm && !this.root.contains(elm) && !elm.closest('.PostStreamScrubber, .PostStream');
+  }
+
+  /**
+   * While something is on screen, place it again only when the page around it
+   * changes: alerts, the composer, cookie banners, chat docks and tab bars come
+   * and go (nodes, classes, styles), or slide and fade into place
+   * (transitionend, animationend). Nothing is measured while the page is still.
+   */
+  watch(): void {
+    if (this.observer) return;
+    this.observer = new MutationObserver(
+      (records) => records.some((record) => this.outside(record.target) && !this.scrollOnly(record)) && this.place()
+    );
+    this.observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ['class', 'style', 'hidden'],
+    });
+    document.addEventListener('transitionend', this.settled, true);
+    document.addEventListener('animationend', this.settled, true);
+  }
+
+  unwatch(): void {
+    this.observer?.disconnect();
+    this.observer = null;
+    document.removeEventListener('transitionend', this.settled, true);
+    document.removeEventListener('animationend', this.settled, true);
+  }
+
+  /**
+   * Toast only: Flarum flips `affix` and `scrolled` on the page as it scrolls,
+   * and the header animates when they do. Neither moves a bar at the bottom.
+   * The ticker sits under the header, so it still follows both.
+   */
+  scrollOnly(record: MutationRecord): boolean {
+    if (this.cfg.style !== 'toast' || record.attributeName !== 'class') return false;
+    const before = new Set((record.oldValue || '').split(/\s+/).filter(Boolean));
+    const after = new Set(((record.target as Element).getAttribute('class') || '').split(/\s+/).filter(Boolean));
+    const changed = [...before, ...after].filter((name) => before.has(name) !== after.has(name));
+    return changed.length > 0 && changed.every((name) => SCROLL_CLASSES.includes(name));
+  }
+
+  settled(e: Event): void {
+    if (!this.outside(e.target)) return;
+    if (this.cfg.style === 'toast' && (e.target as Element).closest?.('.App-header')) return;
+    this.place();
   }
 
   /**

@@ -19,7 +19,6 @@ use Flarum\Api\Context;
 use Flarum\Api\Endpoint;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
-use Flarum\Api\Schema;
 use Flarum\Extend;
 use Flarum\User\User;
 use Illuminate\Console\Scheduling\Event;
@@ -39,6 +38,12 @@ return [
 
     (new Extend\ServiceProvider())->register(BuzzServiceProvider::class),
 
+    // A cursor feed, not a JSON:API resource, on purpose: "anything after row N?"
+    // answers with an ETag (a bodiless 304 when nothing happened) and, past the
+    // newest row, without touching a table. Events have no ids a client may
+    // fetch one by one, so there is nothing to probe for a row it may not see;
+    // each answer holds only display text that this viewer is allowed to read.
+    // See "Why the feed is not a JSON:API resource" in README.md.
     (new Extend\Routes('api'))
         ->get('/buzz', 'buzz.poll', Api\PollController::class),
 
@@ -74,10 +79,7 @@ return [
         ->default('ernestdefoe-buzz.purchase_show_buyer', false),
 
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Arr::make('buzz')
-                ->get(fn ($forum, Context $context) => resolve(Api\ForumConfig::class)->for($context->getActor())),
-        ]),
+        ->fields(Api\ForumFields::class),
 
     (new Extend\Model(User::class))
         ->cast('buzz_share', 'boolean'),
@@ -88,13 +90,7 @@ return [
 
     // The member's own "show my activity in Buzz", on their own user only.
     (new Extend\ApiResource(UserResource::class))
-        ->fields(fn () => [
-            Schema\Boolean::make('buzzShare')
-                ->nullable()
-                ->property('buzz_share')
-                ->visible(fn (User $user, Context $context) => $context->getActor()->id === $user->id)
-                ->writable(fn (User $user, Context $context) => $context->getActor()->id === $user->id),
-        ]),
+        ->fields(Api\UserFields::class),
 
     // The core types. Integrations below add theirs only while that extension is enabled.
     (new Buzz())
@@ -140,7 +136,9 @@ return [
                 'scope' => [Integration\Curio::class, 'scope'],
             ]),
             (new Extend\ApiResource(\Ernestdefoe\Curio\Api\ItemResource::class))
-                ->endpoint(Endpoint\Create::class, fn (Endpoint\Create $endpoint) => $endpoint->after(new Integration\Curio())),
+                ->endpoint(Endpoint\Create::class, fn (Endpoint\Create $endpoint) => $endpoint->after(
+                    fn (Context $context, mixed $item) => resolve(Integration\Curio::class)($context, $item)
+                )),
         ])
         ->whenExtensionEnabled('ernestdefoe-client-area', fn () => [
             (new Buzz())->type('purchase', 'fas fa-bag-shopping', 'ernestdefoe-buzz.forum.event.purchase', [

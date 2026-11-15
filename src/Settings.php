@@ -4,7 +4,15 @@ namespace Ernestdefoe\Buzz;
 
 use Flarum\Settings\SettingsRepositoryInterface;
 
-/** Buzz's settings, typed and clamped. */
+/**
+ * Buzz's settings, typed and clamped.
+ *
+ * The defaults are registered once in extend.php. The fallbacks here are for a
+ * different case: Extend\Settings' default applies only while a key is absent,
+ * but an admin who clears a number field saves '' and the value would then
+ * clamp to its minimum (a 10-second poll instead of 30). An empty value reads
+ * as the default instead.
+ */
 class Settings
 {
     public const PREFIX = 'ernestdefoe-buzz.';

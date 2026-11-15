@@ -65,6 +65,15 @@ An integration switches itself on when you enable that extension and off when yo
 - **Recording costs one insert.** Nothing else runs on the request that caused it.
 - **Rate-limited:** more than 30 checks a minute from one member or address is refused.
 
+### Why the feed is not a JSON:API resource
+
+Buzz's one endpoint, `GET /api/buzz?after=<id>`, is a cursor feed rather than a JSON:API resource, deliberately:
+
+- **It is cheap to ask.** Every answer carries an ETag, so a page that asks again before anything happened gets an empty 304. Past the newest event the server answers without touching a table. A resource list would count, paginate and serialize on every poll.
+- **Nothing to probe.** Events can't be fetched one at a time by id, so nobody can ask about an event they aren't allowed to see. Each answer holds only the display text this viewer may read, checked against Flarum's own visibility in one query, and never the member or discussion records behind it.
+
+Everything else (the member's switch and the forum's settings) goes through Flarum's normal API resources.
+
 ### With Flarum Realtime
 
 If [flarum/realtime](https://github.com/flarum/realtime) is enabled and the browser's connection to it is up, events visible to guests arrive the moment they happen: Buzz sends a signal carrying only the event's number, and each page then asks for what it may see. Nothing restricted is ever sent over the public channel; members still receive restricted events on their next check. Whenever the realtime connection is down, Buzz simply keeps checking on its own.

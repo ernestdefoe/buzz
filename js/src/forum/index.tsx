@@ -34,71 +34,100 @@ function show(events: BuzzEvent[]): void {
   });
 }
 
-function start(): void {
-  const found = config();
-  const user = app.session.user;
-  if (!found || (user && user.preferences()?.buzzMute)) return;
-  const cfg = found;
+/** One check: "anything after this?" */
+function ask(query: string): Promise<BuzzPoll> {
+  return app.request<BuzzPoll>({
+    method: 'GET',
+    url: `${app.forum.attribute<string>('apiUrl')}/buzz?${query}`,
+    // A background check: no redraw, and no alert when it fails, since the
+    // next poll backs off and tries again.
+    background: true,
+    errorHandler: () => undefined,
+  });
+}
 
-  const url = app.forum.attribute<string>('apiUrl') + '/buzz';
-  let cursor = cfg.cursor;
-  let failures = 0;
-  let timer = 0;
-  let busy = false;
-  let socket: Channel | null = null;
-  let primed = !(cfg.recent > 0);
+/** Realtime only says "something new"; the poll decides what this viewer may see. */
+function onRealtime(ready: (channel: Channel) => void): void {
+  if (!('flarum-realtime' in (flarum.extensions || {}))) return;
+  try {
+    flarum.reg.get('flarum-realtime', 'forum/RealtimeState')?.onPublicChannelReady?.(ready);
+  } catch (e) {
+    // No realtime: polling alone.
+  }
+}
 
-  const socketUp = () => !!socket && (app as RealtimeApp).websocket?.connection?.state === 'connected';
-  // Errors back off (30s, 60s … up to 16x); a live socket halves the polling.
-  const wait = () => cfg.interval * 1000 * Math.min(16, 2 ** failures) * (socketUp() ? 2 : 1);
-  const schedule = (ms: number) => {
-    clearTimeout(timer);
-    timer = window.setTimeout(poll, ms);
-  };
+/** Asks the server for new events every so often, sooner when realtime says so. */
+class Poller {
+  cursor: number | null;
+  failures = 0;
+  timer = 0;
+  busy = false;
+  socket: Channel | null = null;
+  /** False until the first ask, when the page wants recent context. */
+  primed: boolean;
 
-  function poll(): void {
-    if (document.hidden || busy) return;
-    busy = true;
+  constructor(private cfg: BuzzConfig) {
+    this.cursor = cfg.cursor;
+    this.primed = !(cfg.recent > 0);
+    this.poll = this.poll.bind(this);
+  }
+
+  /** Errors back off (30s, 60s … up to 16x); a live socket halves the polling. */
+  wait(): number {
+    const socketUp = !!this.socket && (app as RealtimeApp).websocket?.connection?.state === 'connected';
+    return this.cfg.interval * 1000 * Math.min(16, 2 ** this.failures) * (socketUp ? 2 : 1);
+  }
+
+  schedule(ms: number): void {
+    clearTimeout(this.timer);
+    this.timer = window.setTimeout(this.poll, ms);
+  }
+
+  poll(): void {
+    if (document.hidden || this.busy) return;
+    this.busy = true;
     // The first ask carries no cursor when the page wants recent context or
     // has no cursor yet; the answer says where "now" is.
-    const query = primed && cursor != null ? `after=${cursor}` : `recent=${cfg.recent}`;
-    primed = true;
+    const query = this.primed && this.cursor != null ? `after=${this.cursor}` : `recent=${this.cfg.recent}`;
+    this.primed = true;
 
-    fetch(`${url}?${query}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((body: BuzzPoll) => {
-        failures = 0;
-        cursor = body.cursor;
+    ask(query)
+      .then((body) => {
+        this.failures = 0;
+        this.cursor = body.cursor;
         if (body.events.length) show(body.events);
       })
-      .catch(() => failures++)
+      .catch(() => this.failures++)
       .finally(() => {
-        busy = false;
-        schedule(wait());
+        this.busy = false;
+        this.schedule(this.wait());
       });
   }
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) clearTimeout(timer);
-    else schedule(1000);
-  });
+  begin(): void {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) clearTimeout(this.timer);
+      else this.schedule(1000);
+    });
 
-  // Realtime only says "something new"; the poll decides what this viewer may see.
-  if (cfg.realtime && 'flarum-realtime' in (flarum.extensions || {})) {
-    try {
-      const rt = flarum.reg.get('flarum-realtime', 'forum/RealtimeState');
-      rt?.onPublicChannelReady?.((channel: Channel) => {
-        socket = channel;
-        channel.bind('buzz.new', () => document.hidden || schedule(200 + Math.random() * 1500));
+    if (this.cfg.realtime) {
+      onRealtime((channel) => {
+        this.socket = channel;
+        channel.bind('buzz.new', () => document.hidden || this.schedule(200 + Math.random() * 1500));
       });
-    } catch (e) {
-      // No realtime: polling alone.
     }
-  }
 
-  // "Recent" context, or no cursor yet (cache cleared): ask at once. Otherwise
-  // the page starts from now and the first poll comes one interval later.
-  schedule(cursor == null || cfg.recent > 0 ? 1500 : wait());
+    // "Recent" context, or no cursor yet (cache cleared): ask at once. Otherwise
+    // the page starts from now and the first poll comes one interval later.
+    this.schedule(this.cursor == null || this.cfg.recent > 0 ? 1500 : this.wait());
+  }
+}
+
+function start(): void {
+  const cfg = config();
+  const user = app.session.user;
+  if (!cfg || (user && user.preferences()?.buzzMute)) return;
+  new Poller(cfg).begin();
 }
 
 app.initializers.add('ernestdefoe-buzz', () => {

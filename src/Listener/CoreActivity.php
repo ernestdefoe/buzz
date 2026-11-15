@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\Buzz\Listener;
 
+use Ernestdefoe\Buzz\BuzzEvent;
 use Ernestdefoe\Buzz\Recorder;
 use Ernestdefoe\Buzz\Settings;
 use Flarum\Approval\Event\PostWasApproved;
@@ -15,7 +16,6 @@ use Flarum\User\Event\Activated;
 use Flarum\User\Event\Registered;
 use Flarum\User\User;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Database\ConnectionInterface;
 
 /**
  * New discussions, replies and members, and taking them back down again.
@@ -31,7 +31,6 @@ class CoreActivity
         private Recorder $recorder,
         private Settings $settings,
         private ExtensionManager $extensions,
-        private ConnectionInterface $db,
     ) {
     }
 
@@ -100,16 +99,20 @@ class CoreActivity
             return [];
         }
 
-        return $this->db->table('discussion_tag')->where('discussion_id', $discussion->id)->pluck('tag_id')->map(fn ($id) => (int) $id)->all();
+        // flarum/tags' relation, added to the model only while it is enabled.
+        /** @var \Illuminate\Support\Collection<int, \Flarum\Database\AbstractModel>|null $tags */
+        $tags = $discussion->getRelationValue('tags');
+
+        return $tags ? $tags->pluck('id')->map(fn ($id) => (int) $id)->all() : [];
     }
 
     private function forgetPost(Post $post): void
     {
-        $this->db->table('buzz_events')->where('post_id', $post->id)->delete();
+        BuzzEvent::query()->where('post_id', $post->id)->delete();
     }
 
     private function forgetDiscussion(Discussion $discussion): void
     {
-        $this->db->table('buzz_events')->where('discussion_id', $discussion->id)->delete();
+        BuzzEvent::query()->where('discussion_id', $discussion->id)->delete();
     }
 }

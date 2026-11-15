@@ -5,8 +5,6 @@ namespace Ernestdefoe\Buzz;
 use Carbon\Carbon;
 use Flarum\User\User;
 use Illuminate\Contracts\Cache\Repository as Cache;
-use Illuminate\Database\Connection;
-use Illuminate\Database\ConnectionInterface;
 
 /**
  * Writes one broadcast. The whole cost on the request that caused it is a
@@ -31,7 +29,6 @@ class Recorder
     public function __construct(
         private Types $types,
         private Settings $settings,
-        private ConnectionInterface $db,
         private Cache $cache,
         private Broadcaster $broadcaster,
         private Pruner $pruner,
@@ -58,6 +55,44 @@ class Recorder
             return null;
         }
 
+        $data = $this->data($params, $options);
+
+        $event = new BuzzEvent();
+        $event->forceFill([
+            'type' => $type,
+            'user_id' => $user?->id,
+            'discussion_id' => $options['discussion_id'] ?? null,
+            'post_id' => $options['post_id'] ?? null,
+            'subject_id' => $options['subject_id'] ?? null,
+            'members_only' => ! empty($options['members_only']),
+            'data' => $data,
+            'created_at' => Carbon::now('UTC'),
+        ])->save();
+        $id = $event->id;
+
+        $after = function () use ($id) {
+            $this->cache->forever(self::LATEST, max($id, (int) $this->cache->get(self::LATEST, 0)));
+            $this->broadcaster->signal($id);
+
+            if (random_int(1, self::PRUNE_ODDS) === 1) {
+                $this->pruner->prune();
+            }
+        };
+
+        $event->getConnection()->afterCommit($after);
+
+        return $id;
+    }
+
+    /**
+     * What the row stores to draw itself: the text's params, and where it links.
+     *
+     * @param array<string, scalar|null> $params
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function data(array $params, array $options): array
+    {
         $data = ['params' => $this->clean($params)];
 
         if (isset($options['route']['name'])) {
@@ -73,29 +108,7 @@ class Recorder
             $data['anonymous'] = true;
         }
 
-        $id = (int) $this->db->table('buzz_events')->insertGetId([
-            'type' => $type,
-            'user_id' => $user?->id,
-            'discussion_id' => $options['discussion_id'] ?? null,
-            'post_id' => $options['post_id'] ?? null,
-            'subject_id' => $options['subject_id'] ?? null,
-            'members_only' => ! empty($options['members_only']),
-            'data' => json_encode($data),
-            'created_at' => Carbon::now('UTC'),
-        ]);
-
-        $after = function () use ($id) {
-            $this->cache->forever(self::LATEST, max($id, (int) $this->cache->get(self::LATEST, 0)));
-            $this->broadcaster->signal($id);
-
-            if (random_int(1, self::PRUNE_ODDS) === 1) {
-                $this->pruner->prune();
-            }
-        };
-
-        $this->db instanceof Connection ? $this->db->afterCommit($after) : $after();
-
-        return $id;
+        return $data;
     }
 
     /**

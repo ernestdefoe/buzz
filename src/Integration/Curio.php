@@ -19,6 +19,10 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class Curio
 {
+    public function __construct(private Recorder $recorder)
+    {
+    }
+
     public function __invoke(Context $context, mixed $item): mixed
     {
         if (! $item instanceof \Ernestdefoe\Curio\Item || ! $item->wasRecentlyCreated || $item->status === 'wishlist') {
@@ -31,7 +35,7 @@ class Curio
             return $item;
         }
 
-        resolve(Recorder::class)->record('collection', $context->getActor(), ['item' => $item->title, 'collection' => $collection->name], [
+        $this->recorder->record('collection', $context->getActor(), ['item' => $item->title, 'collection' => $collection->name], [
             'route' => ['name' => 'curio.collection', 'params' => ['id' => $collection->id.($collection->slug ? '-'.$collection->slug : '')]],
             'subject_id' => $item->id,
             'members_only' => $collection->visibility === 'members',
