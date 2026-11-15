@@ -1,6 +1,7 @@
 # Every check except the test suite, in ONE job: composer.json, PHP 8.3 syntax
-# (the oldest PHP Flarum 2 supports), Pint, PHPStan, and the JS checks and
-# production build, including that the committed js/dist matches a fresh build.
+# (the oldest PHP Flarum 2 supports), Pint, PHPStan, and the JS checks (Prettier,
+# TypeScript against core's typings in vendor/) and production build, including
+# that the committed js/dist matches a fresh build.
 #
 # This is a private repo, and GitHub bills private repos per job, each rounded
 # up to a whole minute. One job here replaces five (composer, style, JS bundle,
@@ -76,6 +77,7 @@ jobs:
         run: |
           npm ci
           npm run format-check
+          npm run check-typings
           npm run build
 
       # js/dist is committed and is what forums load. If a build from the

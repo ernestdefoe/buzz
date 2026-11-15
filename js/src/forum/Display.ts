@@ -1,6 +1,7 @@
 import app from 'flarum/forum/app';
 import stringToColor from 'flarum/common/utils/stringToColor';
 import extractText from 'flarum/common/utils/extractText';
+import type { BuzzConfig, BuzzEvent, BuzzUser } from '../common/types';
 
 /*
  * Draws Buzz events: one at a time, each for a minimum time, bursts of the
@@ -15,7 +16,7 @@ const MARK = '\u0001';
 const SUBJECT = '\u0002';
 
 /** Text with its subject (a title, a rank…) in bold: the server marks it with SUBJECT. */
-function withSubject(node, text) {
+function withSubject<T extends HTMLElement>(node: T, text: string): T {
   String(text)
     .split(SUBJECT)
     .forEach((part, i) => part && node.appendChild(i % 2 ? el('strong', 'Buzz-subject', part) : document.createTextNode(part)));
@@ -34,18 +35,18 @@ const OBSTACLES = [
   '.CookieBanner, .cc-window, .cc-banner, #onetrust-banner-sdk, #CybotCookiebotDialog, #cookie-banner, .cookie-banner',
 ].join(', ');
 
-function el(tag, className, text) {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
 }
 
-function trans(key, params) {
+function trans(key: string, params: Record<string, unknown> = {}): string {
   return extractText(app.translator.trans('ernestdefoe-buzz.forum.' + key, params));
 }
 
-function hrefFor(event) {
+function hrefFor(event: BuzzEvent): string | null {
   const route = event.route;
   if (route && app.routes[route.name]) {
     try {
@@ -58,23 +59,59 @@ function hrefFor(event) {
   return null;
 }
 
-function profileHref(user) {
+function profileHref(user: BuzzUser | null): string | null {
   return user && app.routes.user ? app.route('user', { username: user.slug }) : null;
 }
 
-function navigate(e, href) {
+/** A plain left click on one of our links routes inside the app. */
+function navigate(event: Event, href: string | null): void {
+  const e = event as MouseEvent;
   if (!href || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   m.route.set(href);
 }
 
+/** The member's picture, or their initial on a colour of their name. */
+function avatarOf(user: BuzzUser): HTMLElement {
+  if (!user.avatar) {
+    const initial = el('span', 'Buzz-avatar', (user.name || '?').charAt(0).toUpperCase());
+    initial.style.setProperty('--buzz-avatar', '#' + stringToColor(user.name || ''));
+    return initial;
+  }
+  const img = el('img', 'Buzz-avatar');
+  img.src = user.avatar;
+  img.alt = '';
+  img.loading = 'lazy';
+  return img;
+}
+
+/** A toast on screen, with the time it has left (kept while paused). */
+interface ToastItem {
+  node: HTMLElement;
+  timer?: number;
+  remaining: number;
+  startedAt: number;
+}
+
 export default class Display {
-  constructor(cfg) {
+  cfg: BuzzConfig;
+  root: HTMLDivElement;
+  queue: BuzzEvent[] = [];
+  /** Toasts on screen, oldest first. */
+  active: ToastItem[] = [];
+  /** The ticker's event on screen. */
+  current: BuzzEvent | null = null;
+  paused = false;
+  marquee: boolean;
+  timer = 0;
+  fillTimer = 0;
+  watch = 0;
+  placing = 0;
+  remaining = 0;
+  startedAt = 0;
+
+  constructor(cfg: BuzzConfig) {
     this.cfg = cfg;
-    this.queue = [];
-    this.current = null;
-    this.timer = 0;
-    this.paused = false;
     this.marquee = cfg.style === 'ticker' && cfg.tickerMode === 'marquee' && !reducedMotion();
 
     const root = (this.root = el('div', `Buzz Buzz--${cfg.style}` + (cfg.style === 'toast' ? ` Buzz--${cfg.side}` : '')));
@@ -98,23 +135,23 @@ export default class Display {
   }
 
   /** Events arrive oldest first. */
-  push(events) {
+  push(events: BuzzEvent[]): void {
     if (!this.allowedHere()) return;
     this.queue.push(...events);
     if (this.queue.length > MAX_QUEUE) this.queue.splice(0, this.queue.length - MAX_QUEUE);
-    if (this.cfg.style === 'toast') return this.fill();
-    if (!this.current) this.next();
+    if (this.cfg.style === 'toast') this.fill();
+    else if (!this.current) this.next();
   }
 
   // ── Bottom toast: a stack of small cards, as Invision's Live Activity ─────
 
   /** Cards on screen at once: the admin's number on a computer, one on a phone. */
-  maxToasts() {
+  maxToasts(): number {
     return window.innerWidth < 768 ? 1 : Math.max(1, this.cfg.maxToasts || 2);
   }
 
   /** Bring on queued events while there is room, oldest first; new cards slide up at the bottom. */
-  fill() {
+  fill(): void {
     clearTimeout(this.fillTimer);
     if (!this.allowedHere()) {
       this.queue = [];
@@ -122,40 +159,39 @@ export default class Display {
     }
     // Writing a post: wait, and look again in a moment.
     if (this.held()) {
-      this.fillTimer = setTimeout(() => this.fill(), 2000);
+      this.fillTimer = window.setTimeout(() => this.fill(), 2000);
       return;
     }
-    this.active = this.active || [];
-    while (this.active.length < this.maxToasts() && this.queue.length) this.showToast(this.queue.shift());
+    while (this.active.length < this.maxToasts() && this.queue.length) this.showToast(this.queue.shift()!);
   }
 
-  showToast(event) {
-    const item = { node: this.toast(event) };
+  showToast(event: BuzzEvent): void {
+    const item: ToastItem = { node: this.toast(event), remaining: 0, startedAt: 0 };
     this.active.push(item);
     this.root.appendChild(item.node);
     this.root.hidden = false;
     this.place();
     clearInterval(this.watch);
     // Alerts, the composer and chat panels come and go while a card is up.
-    this.watch = setInterval(this.place, 500);
+    this.watch = window.setInterval(this.place, 500);
     // Next frame, so the entrance transition runs.
     requestAnimationFrame(() => item.node.classList.add('is-in'));
     this.time(item, this.cfg.seconds * 1000);
   }
 
-  time(item, ms) {
+  time(item: ToastItem, ms: number): void {
     item.remaining = ms;
     item.startedAt = Date.now();
-    if (!this.paused) item.timer = setTimeout(() => this.dismiss(item), ms);
+    if (!this.paused) item.timer = window.setTimeout(() => this.dismiss(item), ms);
   }
 
-  dismiss(item) {
+  dismiss(item: ToastItem): void {
     clearTimeout(item.timer);
     const i = this.active.indexOf(item);
     if (i === -1) return;
     this.active.splice(i, 1);
     item.node.classList.remove('is-in');
-    setTimeout(
+    window.setTimeout(
       () => {
         item.node.remove();
         if (!this.active.length && !this.queue.length) this.hide();
@@ -167,7 +203,7 @@ export default class Display {
   }
 
   /** One card: avatar (with the event's icon), the name on one line, what happened on the next. */
-  toast(event) {
+  toast(event: BuzzEvent): HTMLElement {
     const cfg = this.cfg;
     const href = hrefFor(event);
     const profile = cfg.profileLink && cfg.username ? profileHref(event.user) : null;
@@ -177,15 +213,7 @@ export default class Display {
 
     const face = el('span', 'Buzz-face');
     if (cfg.avatar && event.user) {
-      const avatar = event.user.avatar ? el('img', 'Buzz-avatar') : el('span', 'Buzz-avatar', (event.user.name || '?').charAt(0).toUpperCase());
-      if (event.user.avatar) {
-        avatar.src = event.user.avatar;
-        avatar.alt = '';
-        avatar.loading = 'lazy';
-      } else {
-        avatar.style.setProperty('--buzz-avatar', '#' + stringToColor(event.user.name || ''));
-      }
-      face.appendChild(avatar);
+      face.appendChild(avatarOf(event.user));
       const badge = el('i', 'Buzz-badge ' + event.icon);
       badge.setAttribute('aria-hidden', 'true');
       face.appendChild(badge);
@@ -194,7 +222,7 @@ export default class Display {
       icon.setAttribute('aria-hidden', 'true');
       face.appendChild(icon);
     }
-    if (profile) {
+    if (profile && event.user) {
       const link = el('a', 'Buzz-faceLink');
       link.href = profile;
       link.setAttribute('aria-label', event.user.name);
@@ -210,7 +238,7 @@ export default class Display {
       const name = cfg.username && event.user ? event.user.name : trans('someone');
       const nameNode = el(profile ? 'a' : 'strong', 'Buzz-name', name);
       if (profile) {
-        nameNode.href = profile;
+        (nameNode as HTMLAnchorElement).href = profile;
         nameNode.addEventListener('click', (e) => navigate(e, profile));
       }
       body.appendChild(nameNode);
@@ -218,7 +246,7 @@ export default class Display {
     const what = named ? text.split(MARK).join('').trim() : text;
     const action = withSubject(el(href ? 'a' : 'span', 'Buzz-action'), what);
     if (href) {
-      action.href = href;
+      (action as HTMLAnchorElement).href = href;
       action.addEventListener('click', (e) => navigate(e, href));
     }
     body.appendChild(action);
@@ -237,33 +265,37 @@ export default class Display {
     return card;
   }
 
-  allowedHere() {
+  allowedHere(): boolean {
     return this.cfg.pages !== 'home' || app.current.get('routeName') === 'index';
   }
 
-  held() {
+  held(): boolean {
     const composer = app.composer;
-    return this.cfg.hideComposing && composer && composer.isVisible() && composer.position !== 'minimized';
+    return this.cfg.hideComposing && !!composer && composer.isVisible() && composer.position !== 'minimized';
   }
 
-  next() {
+  next(): void {
     clearTimeout(this.timer);
 
     if (!this.queue.length || !this.allowedHere()) {
       this.queue = [];
-      return this.hide();
+      this.hide();
+      return;
     }
 
     // Writing a post: wait, and look again in a moment.
     if (this.held()) {
       this.hide();
-      this.timer = setTimeout(() => this.next(), 2000);
+      this.timer = window.setTimeout(() => this.next(), 2000);
       return;
     }
 
-    if (this.marquee) return this.scroll();
+    if (this.marquee) {
+      this.scroll();
+      return;
+    }
 
-    const event = this.queue.shift();
+    const event = this.queue.shift()!;
     // A burst of one kind becomes one line and "+N more".
     const same = this.queue.filter((e) => e.type === event.type);
     this.queue = this.queue.filter((e) => e.type !== event.type);
@@ -273,25 +305,25 @@ export default class Display {
     this.wait(this.cfg.seconds * 1000);
   }
 
-  wait(ms) {
+  wait(ms: number): void {
     this.remaining = ms;
     this.startedAt = Date.now();
-    if (!this.paused) this.timer = setTimeout(() => this.advance(), ms);
+    if (!this.paused) this.timer = window.setTimeout(() => this.advance(), ms);
   }
 
-  advance() {
+  advance(): void {
     this.current = null;
     if (this.queue.length) {
       this.root.classList.remove('is-in');
-      this.timer = setTimeout(() => this.next(), reducedMotion() ? 0 : 250);
+      this.timer = window.setTimeout(() => this.next(), reducedMotion() ? 0 : 250);
     } else {
       this.hide();
     }
   }
 
-  pause(paused) {
+  pause(paused: boolean): void {
     if (this.cfg.style === 'toast') {
-      if (this.paused === paused || !(this.active || []).length) return;
+      if (this.paused === paused || !this.active.length) return;
       this.paused = paused;
       this.active.forEach((item) => {
         if (paused) {
@@ -315,9 +347,9 @@ export default class Display {
     }
   }
 
-  close() {
+  close(): void {
     clearTimeout(this.timer);
-    (this.active || []).forEach((item) => clearTimeout(item.timer));
+    this.active.forEach((item) => clearTimeout(item.timer));
     this.active = [];
     this.queue = [];
     this.current = null;
@@ -326,7 +358,7 @@ export default class Display {
   }
 
   /** Marquee: everything queued scrolls past once, at an even reading speed. */
-  scroll() {
+  scroll(): void {
     const events = this.queue.splice(0);
     this.current = events[events.length - 1];
     const track = el('div', 'Buzz-track');
@@ -345,22 +377,14 @@ export default class Display {
     });
   }
 
-  card(event, more) {
+  card(event: BuzzEvent, more: number): HTMLElement {
     const cfg = this.cfg;
     const href = hrefFor(event);
     const profile = cfg.profileLink ? profileHref(event.user) : null;
     const card = el('div', 'Buzz-card');
 
     if (cfg.avatar && event.user) {
-      const avatar = event.user.avatar ? el('img', 'Buzz-avatar') : el('span', 'Buzz-avatar', (event.user.name || '?').charAt(0).toUpperCase());
-      if (event.user.avatar) {
-        avatar.src = event.user.avatar;
-        avatar.alt = '';
-        avatar.loading = 'lazy';
-      } else {
-        avatar.style.setProperty('--buzz-avatar', '#' + stringToColor(event.user.name || ''));
-      }
-      card.appendChild(avatar);
+      card.appendChild(avatarOf(event.user));
     }
 
     const icon = el('i', 'Buzz-icon ' + event.icon);
@@ -369,7 +393,7 @@ export default class Display {
 
     const body = el(href ? 'a' : 'span', 'Buzz-text');
     if (href) {
-      body.href = href;
+      (body as HTMLAnchorElement).href = href;
       body.addEventListener('click', (e) => navigate(e, href));
     }
 
@@ -395,7 +419,7 @@ export default class Display {
 
     // The avatar opens the profile when the text opens the item.
     const avatar = card.querySelector('.Buzz-avatar');
-    if (avatar && profile) {
+    if (avatar && profile && event.user) {
       const link = el('a', 'Buzz-avatarLink');
       link.href = profile;
       link.setAttribute('aria-label', event.user.name);
@@ -409,7 +433,7 @@ export default class Display {
     return card;
   }
 
-  render(children) {
+  render(children: Node[]): void {
     const root = this.root;
     root.replaceChildren(...children);
 
@@ -424,12 +448,12 @@ export default class Display {
     this.place();
     // Alerts, the composer and chat panels come and go while a card is up.
     clearInterval(this.watch);
-    this.watch = setInterval(this.place, 500);
+    this.watch = window.setInterval(this.place, 500);
     // Next frame, so the entrance transition runs.
     requestAnimationFrame(() => root.hidden || root.classList.add('is-in'));
   }
 
-  hide() {
+  hide(): void {
     clearInterval(this.watch);
     this.root.classList.remove('is-in');
     this.root.hidden = true;
@@ -441,7 +465,7 @@ export default class Display {
    * header, Bespoke's, a sub-bar under it), found by probing rather than by
    * name. Toast: above whatever is fixed to the bottom on its side.
    */
-  place() {
+  place(): void {
     if (this.root.hidden) return;
     if (this.placing) return;
     this.placing = requestAnimationFrame(() => {
@@ -451,13 +475,13 @@ export default class Display {
     });
   }
 
-  topEdge() {
+  topEdge(): number {
     let top = 0;
     const x = Math.round(window.innerWidth / 2);
     for (let i = 0; i < 3; i++) {
       const hit = document.elementsFromPoint(x, top + 1).find((node) => !this.root.contains(node));
-      let node = hit;
-      let fixed = null;
+      let node: Element | null | undefined = hit;
+      let fixed: Element | null = null;
       while (node && node !== document.body) {
         const pos = getComputedStyle(node).position;
         if (pos === 'fixed' || pos === 'sticky') fixed = node;
@@ -470,7 +494,7 @@ export default class Display {
     return top;
   }
 
-  lift() {
+  lift(): number {
     const box = this.root.getBoundingClientRect();
     let lift = 0;
     document.querySelectorAll(OBSTACLES).forEach((node) => {

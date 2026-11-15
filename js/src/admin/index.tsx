@@ -1,4 +1,10 @@
 import app from 'flarum/admin/app';
+import type Mithril from 'mithril';
+import type Stream from 'flarum/common/utils/Stream';
+import type Model from 'flarum/common/Model';
+import type Group from 'flarum/common/models/Group';
+import type AdminPage from 'flarum/admin/components/AdminPage';
+import type { BuzzType } from '../common/types';
 
 /*
  * Buzz's admin: which events, how they look, how they arrive, and privacy.
@@ -6,7 +12,7 @@ import app from 'flarum/admin/app';
  * integrated extension that is enabled, and any another extension registers.
  */
 
-function idList(stream) {
+function idList(stream: Stream<string>): string[] {
   try {
     const list = JSON.parse(stream() || '[]');
     return Array.isArray(list) ? list.map(String) : [];
@@ -15,11 +21,12 @@ function idList(stream) {
   }
 }
 
-function picker(key, label, records, name) {
-  return function () {
+/** A checkbox list of records (groups, tags) stored as a JSON list of ids. */
+function picker<T extends Model>(key: string, label: Mithril.Children, records: () => T[], name: (record: T) => Mithril.Children) {
+  return function (this: AdminPage): Mithril.Children {
     const stream = this.setting(key);
     const chosen = idList(stream);
-    const toggle = (id, on) => {
+    const toggle = (id: string, on: boolean) => {
       const next = on ? [...new Set([...chosen, id])] : chosen.filter((x) => x !== id);
       stream(JSON.stringify(next));
     };
@@ -31,7 +38,11 @@ function picker(key, label, records, name) {
           {records().length ? (
             records().map((record) => (
               <label className="checkbox" key={record.id()}>
-                <input type="checkbox" checked={chosen.includes(record.id())} onchange={(e) => toggle(record.id(), e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(record.id()!)}
+                  onchange={(e: Event) => toggle(record.id()!, (e.target as HTMLInputElement).checked)}
+                />
                 {name(record)}
               </label>
             ))
@@ -45,18 +56,19 @@ function picker(key, label, records, name) {
 }
 
 app.initializers.add('ernestdefoe-buzz', () => {
-  const t = (key, params) => app.translator.trans('ernestdefoe-buzz.admin.' + key, params);
-  const section = (key, help) => () => (
+  const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-buzz.admin.' + key, params);
+  const types = (app.data.buzzTypes || []) as BuzzType[];
+  const section = (key: string, help?: string) => () => (
     <div className="Form-group BuzzSection">
       <h3>{t('sections.' + key)}</h3>
       {help ? <p className="helpText">{t('sections.' + help)}</p> : null}
     </div>
   );
-  const options = (key, values) => Object.fromEntries(values.map((value) => [value, t(key + '.' + value)]));
+  const options = (key: string, values: string[]) => Object.fromEntries(values.map((value) => [value, t(key + '.' + value)]));
   const reg = app.registry.for('ernestdefoe-buzz');
 
   reg.registerSetting(section('events', 'events_help'));
-  (app.data.buzzTypes || []).forEach((type) => reg.registerSetting({ setting: type.setting, type: 'boolean', label: type.name, default: true }));
+  types.forEach((type) => reg.registerSetting({ setting: type.setting, type: 'boolean', label: type.name, default: true }));
 
   reg
     .registerSetting(section('display'))
@@ -131,7 +143,7 @@ app.initializers.add('ernestdefoe-buzz', () => {
       picker(
         'ernestdefoe-buzz.exclude_groups',
         t('exclude_groups_label'),
-        () => app.store.all('groups').filter((group) => group.id() !== '2'),
+        () => app.store.all<Group>('groups').filter((group) => group.id() !== '2'),
         (group) => group.namePlural()
       )
     );
@@ -142,12 +154,12 @@ app.initializers.add('ernestdefoe-buzz', () => {
         'ernestdefoe-buzz.exclude_tags',
         t('exclude_tags_label'),
         () => app.store.all('tags'),
-        (tag) => tag.name()
+        (tag) => tag.attribute<string>('name')
       )
     );
   }
 
-  if ((app.data.buzzTypes || []).some((type) => type.key === 'purchase')) {
+  if (types.some((type) => type.key === 'purchase')) {
     reg.registerSetting({
       setting: 'ernestdefoe-buzz.purchase_show_buyer',
       type: 'boolean',
