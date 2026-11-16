@@ -16,7 +16,8 @@ return [
 
         $db = $schema->getConnection();
 
-        $db->table('buzz_user_settings')->insertUsing(
+        // OrIgnore: MySQL can't roll back the drop below, so a re-run after a failed drop must not trip on rows already copied.
+        $db->table('buzz_user_settings')->insertOrIgnoreUsing(
             ['user_id', 'buzz_share'],
             $db->table('users')->select('id', 'buzz_share')->whereNotNull('buzz_share')
         );

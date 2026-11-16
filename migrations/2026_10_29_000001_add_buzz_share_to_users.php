@@ -1,12 +1,23 @@
 <?php
 
-use Flarum\Database\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
 
 /*
- * A member's own "show my activity in Buzz" answer: null until they choose,
- * so the forum's default (share, or ask first) applies to everyone who never
- * touched it, and changing that default needs no rewrite of this column.
+ * 1.1.4 and earlier added users.buzz_share here. Since 1.1.5 the answer lives
+ * in buzz_user_settings (see 2026_11_16_*), so a new install adds nothing to
+ * core's users table; forums that ran this before are moved over by
+ * 2026_11_16_000001. Kept, empty on the way up, so its record stays valid.
  */
-return Migration::addColumns('users', [
-    'buzz_share' => ['boolean', 'nullable' => true],
-]);
+return [
+    'up' => function (Builder $schema) {
+    },
+
+    'down' => function (Builder $schema) {
+        if ($schema->hasColumn('users', 'buzz_share')) {
+            $schema->table('users', function (Blueprint $table) {
+                $table->dropColumn('buzz_share');
+            });
+        }
+    },
+];

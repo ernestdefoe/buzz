@@ -101,6 +101,9 @@ return [
         ->type('member', 'fas fa-user-plus', 'ernestdefoe-buzz.forum.event.member', ['name' => 'ernestdefoe-buzz.admin.types.member']),
 
     (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-approval', fn () => [
+            (new Extend\Event())->listen(\Flarum\Approval\Event\PostWasApproved::class, [CoreActivity::class, 'approved']),
+        ])
         ->whenExtensionEnabled('fof-badges', fn () => [
             (new Buzz())->type('badge', 'fas fa-award', 'ernestdefoe-buzz.forum.event.badge', [
                 'name' => 'ernestdefoe-buzz.admin.types.badge', 'permission' => 'badges.viewUserBadges', 'extension' => 'fof-badges',

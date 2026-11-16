@@ -40,16 +40,17 @@ class CoreActivity
         $events->listen(Activated::class, fn (Activated $e) => $this->member($e->user));
         $events->listen(Registered::class, fn (Registered $e) => $e->user->is_email_confirmed ? $this->member($e->user) : null);
 
-        // Held for approval: it goes out when a moderator lets it through.
-        if (class_exists(PostWasApproved::class)) {
-            $events->listen(PostWasApproved::class, fn (PostWasApproved $e) => $this->post($e->post));
-        }
-
         // Taken down: forgotten at once, not just filtered.
         $events->listen(PostEvent\Hidden::class, fn (PostEvent\Hidden $e) => $this->forgetPost($e->post));
         $events->listen(PostEvent\Deleted::class, fn (PostEvent\Deleted $e) => $this->forgetPost($e->post));
         $events->listen(DiscussionEvent\Hidden::class, fn (DiscussionEvent\Hidden $e) => $this->forgetDiscussion($e->discussion));
         $events->listen(DiscussionEvent\Deleted::class, fn (DiscussionEvent\Deleted $e) => $this->forgetDiscussion($e->discussion));
+    }
+
+    /** Held for approval: it goes out when a moderator lets it through (registered only while flarum-approval is enabled). */
+    public function approved(PostWasApproved $event): void
+    {
+        $this->post($event->post);
     }
 
     public function post(Post $post, ?User $actor = null): void

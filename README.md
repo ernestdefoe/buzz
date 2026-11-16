@@ -62,7 +62,7 @@ An integration switches itself on when you enable that extension and off when yo
 - **5 KB of JavaScript on every page** (about 2.5 KB compressed): a small poller and the settings switches. The part that draws events is fetched only when the first event arrives.
 - **A cheap check.** Pages ask every 30 seconds (your setting, 10 at the least), only while the tab is visible, and back off when the server has trouble. When nothing has happened, the answer doesn't touch Buzz's table at all. When something has, it's one indexed query, the same with 10 events or 10,000.
 - **Guests share one copy.** A thousand guests watching cost one query per new event, not a thousand.
-- **Recording costs one insert.** Nothing else runs on the request that caused it; clearing out expired events goes on the queue.
+- **Recording costs one insert** and a primary-key read of the member's answer. Clearing out expired events is a queued job (with Flarum's default sync queue it runs right after the request's own work, about once in 50 events: two indexed deletes).
 - **Rate-limited:** more than 30 checks a minute from one member or address is refused.
 
 ### Why the feed is not a JSON:API resource

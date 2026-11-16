@@ -8,10 +8,11 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Queue\Queue;
 
 /**
- * Writes one broadcast. The whole cost on the request that caused it is a
- * handful of in-memory checks and ONE insert; the cursor bump and the
- * realtime signal wait until the surrounding transaction commits, so no
- * browser is ever told about a row it cannot read yet.
+ * Writes one broadcast. The cost on the request that caused it is a few
+ * checks (the member's own answer is one primary-key read) and ONE insert;
+ * the cursor bump, the realtime signal and, now and then, a queued prune wait
+ * until the surrounding transaction commits, so no browser is ever told
+ * about a row it cannot read yet.
  *
  * Other extensions call this too:
  *

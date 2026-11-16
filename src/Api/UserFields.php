@@ -37,10 +37,9 @@ class UserFields
                         return;
                     }
 
-                    $row = BuzzUserSetting::query()->find($user->id) ?? (new BuzzUserSetting())->forceFill(['user_id' => $user->id]);
-                    $row->buzz_share = $value;
-                    $row->save();
-                    $user->setRelation('buzzSettings', $row);
+                    // One upsert: two first saves at once can't collide on the key.
+                    BuzzUserSetting::query()->upsert([['user_id' => $user->id, 'buzz_share' => $value]], ['user_id'], ['buzz_share']);
+                    $user->setRelation('buzzSettings', (new BuzzUserSetting())->forceFill(['user_id' => $user->id, 'buzz_share' => $value]));
                 }),
         ];
     }
