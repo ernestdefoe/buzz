@@ -12,7 +12,5 @@ return Migration::createTable('buzz_user_settings', function (Blueprint $table) 
     $table->unsignedInteger('user_id')->primary();
     $table->boolean('buzz_share');
 
-    $table->index('buzz_share');
-
     $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
 });
