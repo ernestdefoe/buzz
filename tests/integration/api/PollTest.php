@@ -161,6 +161,20 @@ class PollTest extends BuzzTestCase
     }
 
     #[Test]
+    public function recording_queues_the_prune_instead_of_running_it_inline(): void
+    {
+        $this->boot();
+        $queue = new \Illuminate\Support\Testing\Fakes\QueueFake($this->app()->getContainer());
+        $this->app()->getContainer()->instance(\Illuminate\Contracts\Queue\Queue::class, $queue);
+        $this->app()->getContainer()->forgetInstance(Recorder::class);
+
+        $this->record(Recorder::PRUNE_ODDS * 10);
+
+        $queue->assertPushed(\Ernestdefoe\Buzz\PruneJob::class);
+        $this->assertSame(Recorder::PRUNE_ODDS * 10, $this->database()->table('buzz_events')->count(), 'nothing pruned on the request');
+    }
+
+    #[Test]
     public function old_rows_and_rows_past_the_cap_are_pruned(): void
     {
         $this->setting('ernestdefoe-buzz.keep_hours', 24);

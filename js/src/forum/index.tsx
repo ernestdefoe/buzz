@@ -3,6 +3,7 @@ import { extend } from 'flarum/common/extend';
 import Switch from 'flarum/common/components/Switch';
 import FieldSet from 'flarum/common/components/FieldSet';
 import type SettingsPage from 'flarum/forum/components/SettingsPage';
+import type { ApiPayloadSingle } from 'flarum/common/Store';
 import type Display from './Display';
 import type { BuzzConfig, BuzzEvent, BuzzPoll } from '../common/types';
 
@@ -133,6 +134,23 @@ function start(): void {
 app.initializers.add('ernestdefoe-buzz', () => {
   extend(app, 'mount', start);
 
+  // The answer is only sent when asked for, so the session user costs nothing elsewhere.
+  extend<SettingsPage, 'oninit'>('flarum/forum/components/SettingsPage', 'oninit', function () {
+    const user = this.user;
+    if (!config() || !user || user.attribute('buzzShare') !== undefined) return;
+    // Through app.request: core's find() typings take `fields` as a list, not JSON:API's map.
+    app
+      .request<ApiPayloadSingle>({
+        method: 'GET',
+        url: `${app.forum.attribute<string>('apiUrl')}/users/${user.id()}`,
+        params: { fields: { users: 'buzzShare' } },
+      })
+      .then((payload) => {
+        app.store.pushPayload(payload);
+        m.redraw();
+      });
+  });
+
   // A string: the settings page is its own lazily loaded chunk in Flarum 2.
   extend<SettingsPage, 'settingsItems'>('flarum/forum/components/SettingsPage', 'settingsItems', function (items) {
     const cfg = config();
@@ -145,7 +163,11 @@ app.initializers.add('ernestdefoe-buzz', () => {
     items.add(
       'buzz',
       <FieldSet className="Settings-buzz" label={t('heading')}>
-        <Switch state={share === null || share === undefined ? !optIn : share} onchange={(value: boolean) => user.save({ buzzShare: value })}>
+        <Switch
+          state={share === null || share === undefined ? !optIn : share}
+          disabled={share === undefined}
+          onchange={(value: boolean) => user.save({ buzzShare: value })}
+        >
           {t('share_label')}
         </Switch>
         <div className="helpText">{t('share_help')}</div>

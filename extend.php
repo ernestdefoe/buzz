@@ -11,6 +11,7 @@
 
 use Ernestdefoe\Buzz\Api;
 use Ernestdefoe\Buzz\BuzzServiceProvider;
+use Ernestdefoe\Buzz\BuzzUserSetting;
 use Ernestdefoe\Buzz\Console\PruneCommand;
 use Ernestdefoe\Buzz\Extend\Buzz;
 use Ernestdefoe\Buzz\Integration;
@@ -81,8 +82,9 @@ return [
     (new Extend\ApiResource(ForumResource::class))
         ->fields(Api\ForumFields::class),
 
+    // The member's own answers live beside users, not in it.
     (new Extend\Model(User::class))
-        ->cast('buzz_share', 'boolean'),
+        ->hasOne('buzzSettings', BuzzUserSetting::class, 'user_id'),
 
     // "Mute Buzz": this member sees no feed. A preference, so it costs nothing to read.
     (new Extend\User())

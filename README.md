@@ -47,12 +47,12 @@ An integration switches itself on when you enable that extension and off when yo
 - **Visibility is checked for every viewer, on the server.** A reply in a tag someone can't open, a hidden or unapproved post, a private discussion, a quiz they can't see, a private collection: none of it ever reaches them. Buzz asks Flarum's own visibility rules, so tags, approval, private discussions and other extensions' rules all count.
 - **Taken down means gone.** Hiding or deleting a post or discussion removes its events at once.
 - **Suspended members and unconfirmed accounts are never shown.**
-- **Members choose.** "Show my activity in Buzz" is in each member's settings, on by default. Switch on **Ask members first** and only members who turn it on are shown. Turning it off also takes down what was already shown.
+- **Members choose.** "Show my activity in Buzz" is in each member's settings, on by default. Switch on **Ask members first** and only members who turn it on are shown. Turning it off also takes down what was already shown. The answer is kept in Buzz's own `buzz_user_settings` table, not in Flarum's users table, and is deleted with the account.
 - **Members can mute it.** "Hide the live activity feed" stops Buzz for that member.
 - **Leave out groups and tags.** Staff, for example, or an off-topic tag.
 - **Quizzes:** a member who keeps themselves off quiz leaderboards is never broadcast, and neither are passes on quizzes whose results are private. Quiz events are for members only.
 - **Purchases are anonymous by default:** "Someone bought Parley Calls", with no name, avatar or link. Showing the buyer's name is a separate switch, off until you turn it on. Renewals and free plans are never broadcast.
-- **Events expire.** They are kept for 24 hours and at most 500 (both settings), then deleted by the scheduler, or now and then by Buzz itself if you don't run one.
+- **Events expire.** They are kept for 24 hours and at most 500 (both settings), then deleted by the scheduler (`buzz:prune`, hourly), and now and then by a queued job if you don't run one.
 
 ![Each member's switches](screenshots/member-settings.png)
 
@@ -62,7 +62,7 @@ An integration switches itself on when you enable that extension and off when yo
 - **5 KB of JavaScript on every page** (about 2.5 KB compressed): a small poller and the settings switches. The part that draws events is fetched only when the first event arrives.
 - **A cheap check.** Pages ask every 30 seconds (your setting, 10 at the least), only while the tab is visible, and back off when the server has trouble. When nothing has happened, the answer doesn't touch Buzz's table at all. When something has, it's one indexed query, the same with 10 events or 10,000.
 - **Guests share one copy.** A thousand guests watching cost one query per new event, not a thousand.
-- **Recording costs one insert.** Nothing else runs on the request that caused it.
+- **Recording costs one insert.** Nothing else runs on the request that caused it; clearing out expired events goes on the queue.
 - **Rate-limited:** more than 30 checks a minute from one member or address is refused.
 
 ### Why the feed is not a JSON:API resource

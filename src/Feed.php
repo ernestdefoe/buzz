@@ -17,7 +17,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * Reads broadcasts for one viewer.
  *
  * 🚨 ONE query per poll, whatever the number of rows or types: the author's
- * account (name, avatar, suspension, opt-out) comes in by a join, the post a
+ * account (name, avatar, suspension) and its opt-out come in by two joins, the post a
  * row points at is checked with core's own post visibility scope as a
  * correlated EXISTS (tags, approval, hiding, private discussions and every
  * other extension's rules, without Buzz knowing them), and each type's own
@@ -125,7 +125,8 @@ class Feed
 
         $query = BuzzEvent::query()
             ->select($columns)
-            ->leftJoin('users', 'users.id', '=', 'buzz_events.user_id');
+            ->leftJoin('users', 'users.id', '=', 'buzz_events.user_id')
+            ->leftJoin('buzz_user_settings', 'buzz_user_settings.user_id', '=', 'buzz_events.user_id');
 
         $query->where(fn (Builder $q) => $this->whereAuthorShown($q));
 
@@ -159,9 +160,10 @@ class Feed
             }
 
             if ($this->settings->optIn()) {
-                $q->where('users.buzz_share', true);
+                $q->where('buzz_user_settings.buzz_share', true);
             } else {
-                $q->where(fn (Builder $q) => $q->whereNull('users.buzz_share')->orWhere('users.buzz_share', true));
+                // No row (never chose) or a yes.
+                $q->where(fn (Builder $q) => $q->whereNull('buzz_user_settings.buzz_share')->orWhere('buzz_user_settings.buzz_share', true));
             }
         });
     }

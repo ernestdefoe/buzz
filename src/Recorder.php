@@ -5,6 +5,7 @@ namespace Ernestdefoe\Buzz;
 use Carbon\Carbon;
 use Flarum\User\User;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Queue\Queue;
 
 /**
  * Writes one broadcast. The whole cost on the request that caused it is a
@@ -23,7 +24,7 @@ class Recorder
 {
     public const LATEST = 'ernestdefoe-buzz.latest';
 
-    /** One insert in this many also clears out expired rows, for forums without a scheduler. */
+    /** One insert in this many also queues a prune, for forums without a scheduler. */
     public const PRUNE_ODDS = 50;
 
     public function __construct(
@@ -31,7 +32,7 @@ class Recorder
         private Settings $settings,
         private Cache $cache,
         private Broadcaster $broadcaster,
-        private Pruner $pruner,
+        private Queue $queue,
     ) {
     }
 
@@ -75,7 +76,7 @@ class Recorder
             $this->broadcaster->signal($id);
 
             if (random_int(1, self::PRUNE_ODDS) === 1) {
-                $this->pruner->prune();
+                $this->queue->push(new PruneJob());
             }
         };
 
@@ -127,9 +128,10 @@ class Recorder
             return false;
         }
 
-        $share = $user->buzz_share;
+        // No row = never chose: shown unless the forum asks first.
+        $share = BuzzUserSetting::shareOf($user);
 
-        if ($share === false || $share === 0 || $share === '0' || ($this->settings->optIn() && ! $share)) {
+        if ($share === false || ($this->settings->optIn() && $share !== true)) {
             return false;
         }
 

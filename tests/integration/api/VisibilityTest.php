@@ -146,7 +146,7 @@ class VisibilityTest extends BuzzTestCase
         $this->boot();
         $this->startDiscussion(2, 'Before', [1]);
 
-        $this->database()->table('users')->where('id', 2)->update(['buzz_share' => false]);
+        $this->database()->table('buzz_user_settings')->insert(['user_id' => 2, 'buzz_share' => false]);
         $this->assertSame([], $this->seen(null), 'opting out takes what was shown down too');
 
         $this->startDiscussion(2, 'After', [1]);
@@ -162,9 +162,21 @@ class VisibilityTest extends BuzzTestCase
         $this->startDiscussion(2, 'Quiet', [1]);
         $this->assertSame(0, $this->database()->table('buzz_events')->count());
 
-        $this->database()->table('users')->where('id', 3)->update(['buzz_share' => true]);
+        $this->database()->table('buzz_user_settings')->insert(['user_id' => 3, 'buzz_share' => true]);
         $d = $this->startDiscussion(3, 'Loud', [1]);
         $this->assertSame(['discussion:'.$d['id'].'-loud'], $this->seen(null));
+    }
+
+    #[Test]
+    public function a_member_who_never_chose_follows_the_forum_default(): void
+    {
+        $this->boot();
+        $d = $this->startDiscussion(2, 'Default', [1]);
+        $this->assertSame(0, $this->database()->table('buzz_user_settings')->count(), 'no row is written for a member who never chose');
+        $this->assertSame(['discussion:'.$d['id'].'-default'], $this->seen(3), 'share by default: shown');
+
+        $this->app()->getContainer()->make(\Flarum\Settings\SettingsRepositoryInterface::class)->set('ernestdefoe-buzz.opt_in', '1');
+        $this->assertSame([], $this->seen(3), 'ask first: not shown until they say yes');
     }
 
     #[Test]
@@ -178,10 +190,25 @@ class VisibilityTest extends BuzzTestCase
         ]));
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $this->assertSame(false, json_decode((string) $response->getBody(), true)['data']['attributes']['buzzShare']);
-        $this->assertSame(0, (int) $this->database()->table('users')->where('id', 2)->value('buzz_share'));
+        $this->assertSame(0, (int) $this->database()->table('buzz_user_settings')->where('user_id', 2)->value('buzz_share'));
+
+        // Changing an answer updates the one row; null clears it, back to the forum default.
+        $patch = fn ($value) => $this->send($this->request('PATCH', '/api/users/2', [
+            'authenticatedAs' => 2,
+            'json' => ['data' => ['type' => 'users', 'id' => '2', 'attributes' => ['buzzShare' => $value]]],
+        ]));
+        $this->assertSame(true, json_decode((string) $patch(true)->getBody(), true)['data']['attributes']['buzzShare']);
+        $this->assertSame(1, $this->database()->table('buzz_user_settings')->where('user_id', 2)->count());
+        $this->assertSame(1, (int) $this->database()->table('buzz_user_settings')->where('user_id', 2)->value('buzz_share'));
+        $this->assertNull(json_decode((string) $patch(null)->getBody(), true)['data']['attributes']['buzzShare']);
+        $this->assertSame(0, $this->database()->table('buzz_user_settings')->where('user_id', 2)->count());
+        $own = fn () => json_decode((string) $this->send($this->request('GET', '/api/users/2', ['authenticatedAs' => 2])->withQueryParams(['fields' => ['users' => 'buzzShare']]))->getBody(), true)['data']['attributes'];
+        $this->assertArrayHasKey('buzzShare', $own());
+        $this->assertNull($own()['buzzShare'], 'asked for: null = never chose');
+        $this->assertArrayNotHasKey('buzzShare', json_decode((string) $this->send($this->request('GET', '/api/users/2', ['authenticatedAs' => 2]))->getBody(), true)['data']['attributes'], 'not asked for: not sent (no query)');
 
         // Somebody else's: not even visible.
-        $response = $this->send($this->request('GET', '/api/users/2', ['authenticatedAs' => 3]));
+        $response = $this->send($this->request('GET', '/api/users/2', ['authenticatedAs' => 3])->withQueryParams(['fields' => ['users' => 'username,buzzShare']]));
         $this->assertArrayNotHasKey('buzzShare', json_decode((string) $response->getBody(), true)['data']['attributes']);
     }
 

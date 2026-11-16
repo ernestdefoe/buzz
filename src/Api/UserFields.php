@@ -2,11 +2,21 @@
 
 namespace Ernestdefoe\Buzz\Api;
 
+use Ernestdefoe\Buzz\BuzzUserSetting;
 use Flarum\Api\Context;
+use Flarum\Api\Endpoint;
 use Flarum\Api\Schema;
 use Flarum\User\User;
 
-/** The member's own "show my activity in Buzz": seen and changed on their own user only. */
+/**
+ * The member's own "show my activity in Buzz": seen and changed on their own
+ * user only, stored in buzz_user_settings. Null clears the answer, so the
+ * forum default applies again.
+ *
+ * Serialized only when asked for (`fields[users]=buzzShare`, which the
+ * settings page sends) or written, so the session user on every other
+ * response costs no extra query.
+ */
 class UserFields
 {
     /** @return array<Schema\Boolean> */
@@ -15,9 +25,23 @@ class UserFields
         return [
             Schema\Boolean::make('buzzShare')
                 ->nullable()
-                ->property('buzz_share')
-                ->visible(fn (User $user, Context $context) => $context->getActor()->id === $user->id)
-                ->writable(fn (User $user, Context $context) => $context->getActor()->id === $user->id),
+                ->visible(fn (User $user, Context $context) => $context->getActor()->id === $user->id
+                    && ($context->fieldRequested('users', 'buzzShare', false) || $context->endpoint instanceof Endpoint\Update))
+                ->writable(fn (User $user, Context $context) => $context->getActor()->id === $user->id)
+                ->get(fn (User $user) => BuzzUserSetting::shareOf($user))
+                ->save(function (User $user, ?bool $value) {
+                    if ($value === null) {
+                        BuzzUserSetting::query()->whereKey($user->id)->delete();
+                        $user->setRelation('buzzSettings', null);
+
+                        return;
+                    }
+
+                    $row = BuzzUserSetting::query()->find($user->id) ?? (new BuzzUserSetting())->forceFill(['user_id' => $user->id]);
+                    $row->buzz_share = $value;
+                    $row->save();
+                    $user->setRelation('buzzSettings', $row);
+                }),
         ];
     }
 }
