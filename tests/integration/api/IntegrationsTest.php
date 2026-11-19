@@ -72,6 +72,49 @@ namespace ErnestDefoe\ClientArea\Event {
     }
 }
 
+namespace ErnestDefoe\Brainstorm {
+    // Brainstorm 1.2's layout: the leaderboard opt-out in its own table, quizzes scoped by core's whereVisibleTo.
+    if (! class_exists(Quiz::class)) {
+        class Quiz extends \Flarum\Database\AbstractModel
+        {
+            use \Flarum\Database\ScopeVisibilityTrait;
+
+            protected $table = 'quizzes';
+
+            public function isPublished(): bool
+            {
+                return true;
+            }
+        }
+
+        class Attempt extends \Flarum\Database\AbstractModel
+        {
+        }
+
+        class OptOut extends \Flarum\Database\AbstractModel
+        {
+            protected $table = 'quiz_leaderboard_opt_outs';
+
+            protected $primaryKey = 'user_id';
+
+            public $incrementing = false;
+
+            public $timestamps = false;
+        }
+    }
+}
+
+namespace ErnestDefoe\Brainstorm\Event {
+    if (! class_exists(AttemptFinished::class)) {
+        class AttemptFinished
+        {
+            public function __construct(public \ErnestDefoe\Brainstorm\Attempt $attempt, public \Flarum\User\User $user, public bool $firstPass)
+            {
+            }
+        }
+    }
+}
+
 namespace Ernestdefoe\Buzz\Tests\integration\api {
     use Carbon\Carbon;
     use Ernestdefoe\Buzz\Extend\Buzz;
@@ -163,6 +206,35 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
 
             $served = $this->poll(null, ['after' => 0])['body']['events'];
             $this->assertSame(["\u{1} reached the rank \u{2}Veteran\u{2}"], array_column($served, 'text'));
+        }
+
+        #[Test]
+        public function a_member_off_quiz_leaderboards_is_never_broadcast(): void
+        {
+            $this->extension('ernestdefoe-buzz');
+            $this->extend((new Buzz())->type('quiz', 'fas fa-graduation-cap', 'ernestdefoe-buzz.forum.event.quiz', [
+                'scope' => [Integration\Brainstorm::class, 'scope'],
+            ]));
+            $this->prepareDatabase([
+                User::class => [['id' => 3, 'username' => 'quizzer', 'email' => 'quizzer@machine.local', 'password' => 'x', 'is_email_confirmed' => 1]],
+                'quizzes' => [['id' => 1, 'title' => 'Rules', 'slug' => 'rules', 'leaderboard' => 1]],
+                'quiz_leaderboard_opt_outs' => [['user_id' => 2]],
+            ]);
+            $this->boot();
+
+            $hook = $this->app()->getContainer()->make(Integration\Brainstorm::class);
+            foreach ([2, 3] as $id) {
+                $attempt = new \ErnestDefoe\Brainstorm\Attempt();
+                $attempt->setRelation('quiz', \ErnestDefoe\Brainstorm\Quiz::find(1));
+                $hook(new \ErnestDefoe\Brainstorm\Event\AttemptFinished($attempt, User::find($id), true));
+            }
+            $this->assertSame([3], $this->database()->table('buzz_events')->where('type', 'quiz')->pluck('user_id')->map(fn ($id) => (int) $id)->all(), 'the opted-out pass is not recorded');
+
+            // A pass recorded before the member opted out is no longer served.
+            $earlier = $this->insertEvent('quiz', 2, ['subject_id' => 1, 'members_only' => true]);
+            $recorded = (int) $this->database()->table('buzz_events')->where('type', 'quiz')->where('user_id', 3)->value('id');
+            $this->assertSame([$recorded], array_column($this->poll(3, ['after' => 0])['body']['events'], 'id'));
+            $this->assertNotSame($recorded, $earlier);
         }
 
         #[Test]

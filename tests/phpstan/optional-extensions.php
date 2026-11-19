@@ -40,12 +40,14 @@ namespace ErnestDefoe\Brainstorm {
      */
     class Quiz extends \Flarum\Database\AbstractModel
     {
+        use \Flarum\Database\ScopeVisibilityTrait;
+
         public function isPublished(): bool
         {
             return true;
         }
 
-        /** @param \Illuminate\Database\Eloquent\Builder<Quiz> $query */
+        /** Brainstorm 1.1's own scope; 1.2 uses core's whereVisibleTo. @param \Illuminate\Database\Eloquent\Builder<Quiz> $query */
         public function scopeVisibleTo(\Illuminate\Database\Eloquent\Builder $query, \Flarum\User\User $actor): void
         {
         }
@@ -53,6 +55,15 @@ namespace ErnestDefoe\Brainstorm {
 
     /** @property Quiz|null $quiz */
     class Attempt extends \Flarum\Database\AbstractModel
+    {
+    }
+
+    /**
+     * Brainstorm 1.2+: a member off quiz leaderboards.
+     *
+     * @method static \Illuminate\Database\Eloquent\Builder<static> query()
+     */
+    class OptOut extends \Flarum\Database\AbstractModel
     {
     }
 }
