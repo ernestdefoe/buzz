@@ -25,6 +25,7 @@ class UserFields
         return [
             Schema\Boolean::make('buzzShare')
                 ->nullable()
+                // fieldRequested() is json-api-server's Context method (Flarum's Context extends it): sparse fieldsets.
                 ->visible(fn (User $user, Context $context) => $context->getActor()->id === $user->id
                     && ($context->fieldRequested('users', 'buzzShare', false) || $context->endpoint instanceof Endpoint\Update))
                 ->writable(fn (User $user, Context $context) => $context->getActor()->id === $user->id)

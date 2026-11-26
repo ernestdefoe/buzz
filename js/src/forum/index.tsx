@@ -7,6 +7,8 @@ import type { ApiPayloadSingle } from 'flarum/common/Store';
 import type Display from './Display';
 import type { BuzzConfig, BuzzEvent, BuzzPoll } from '../common/types';
 
+export { default as extend } from './extend';
+
 /** What flarum/realtime adds: the socket, and a public channel to listen on. */
 type RealtimeApp = typeof app & { websocket?: { connection?: { state?: string } } };
 interface Channel {
