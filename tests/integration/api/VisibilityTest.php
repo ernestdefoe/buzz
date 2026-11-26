@@ -61,7 +61,9 @@ class VisibilityTest extends BuzzTestCase
 
         $expected = ['discussion:'.$d['id'].'-hello-world', 'reply:'.$d['id'].'-hello-world'];
         $this->assertSame($expected, $this->seen(null));
-        $this->assertSame($expected, $this->seen(2));
+        $this->assertSame($expected, $this->seen(1));
+        $this->assertSame([$expected[1]], $this->seen(2), 'the author is not shown their own discussion');
+        $this->assertSame([$expected[0]], $this->seen(3), 'nor the replier their own reply');
 
         $event = $this->poll(null, ['after' => 0])['body']['events'][1];
         $this->assertSame("\u{1} replied to \u{2}Hello world\u{2}", $event['text']);
@@ -73,12 +75,16 @@ class VisibilityTest extends BuzzTestCase
     #[Test]
     public function a_restricted_tag_reaches_only_those_who_can_see_it(): void
     {
+        $this->prepareDatabase([
+            User::class => [['id' => 5, 'username' => 'admin2', 'email' => 'admin2@machine.local', 'is_email_confirmed' => 1]],
+            'group_user' => [['user_id' => 5, 'group_id' => Group::ADMINISTRATOR_ID]],
+        ]);
         $this->boot();
         $this->startDiscussion(1, 'Staff only', [2]);
 
         $this->assertSame([], $this->seen(null));
         $this->assertSame([], $this->seen(2));
-        $this->assertCount(1, $this->seen(1));
+        $this->assertCount(1, $this->seen(5));
     }
 
     #[Test]

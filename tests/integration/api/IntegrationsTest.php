@@ -233,7 +233,7 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
             // A pass recorded before the member opted out is no longer served.
             $earlier = $this->insertEvent('quiz', 2, ['subject_id' => 1, 'members_only' => true]);
             $recorded = (int) $this->database()->table('buzz_events')->where('type', 'quiz')->where('user_id', 3)->value('id');
-            $this->assertSame([$recorded], array_column($this->poll(3, ['after' => 0])['body']['events'], 'id'));
+            $this->assertSame([$recorded], array_column($this->poll(1, ['after' => 0])['body']['events'], 'id'));
             $this->assertNotSame($recorded, $earlier);
         }
 
@@ -293,9 +293,9 @@ namespace Ernestdefoe\Buzz\Tests\integration\api {
             $this->boot();
 
             $recorder = $this->app()->getContainer()->make(Recorder::class);
-            $recorder->record('acme.thing', User::find(2), [], ['subject_id' => 1, 'route' => ['name' => 'acme', 'params' => ['id' => 1]]]);
-            $recorder->record('acme.thing', User::find(2), [], ['subject_id' => 99]);
-            $this->assertNull($recorder->record('acme.unknown', User::find(2)), 'an unregistered type records nothing');
+            $recorder->record('acme.thing', User::find(1), [], ['subject_id' => 1, 'route' => ['name' => 'acme', 'params' => ['id' => 1]]]);
+            $recorder->record('acme.thing', User::find(1), [], ['subject_id' => 99]);
+            $this->assertNull($recorder->record('acme.unknown', User::find(1)), 'an unregistered type records nothing');
 
             $this->assertSame([], $this->poll(null, ['after' => 0])['body']['events'], 'guests lack the permission');
             $served = $this->poll(2, ['after' => 0])['body']['events'];

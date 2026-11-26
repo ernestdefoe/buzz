@@ -24,7 +24,18 @@ const config = (): BuzzConfig | null => app.forum.attribute<BuzzConfig | null>('
 let display: Display | null | false = null;
 const pending: BuzzEvent[] = [];
 
+/**
+ * The server never sends a member their own activity; this is the second
+ * guard. With masked names there is no slug, and only the server's check holds.
+ */
+function ownEvent(event: BuzzEvent): boolean {
+  const slug = app.session.user?.slug();
+  return !!slug && event.user?.slug === slug;
+}
+
 function show(events: BuzzEvent[]): void {
+  events = events.filter((event) => !ownEvent(event));
+  if (!events.length) return;
   pending.push(...events);
   if (display) return display.push(pending.splice(0));
   if (display === false) return;

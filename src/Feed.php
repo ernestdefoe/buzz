@@ -132,6 +132,9 @@ class Feed
 
         if ($actor->isGuest()) {
             $query->where('buzz_events.members_only', false);
+        } else {
+            // Never the viewer's own activity, of any type: they just did it.
+            $query->where(fn (Builder $q) => $q->whereNull('buzz_events.user_id')->orWhere('buzz_events.user_id', '!=', $actor->id));
         }
 
         // The post a row points at must be one this viewer can open.

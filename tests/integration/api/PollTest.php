@@ -40,7 +40,7 @@ class PollTest extends BuzzTestCase
     {
         $recorder = $this->app()->getContainer()->make(Recorder::class);
         for ($i = 0; $i < $times; $i++) {
-            $recorder->record('member', User::find(2));
+            $recorder->record('member', User::find(1)); // the admin acts; member 2 watches
         }
     }
 
@@ -62,10 +62,29 @@ class PollTest extends BuzzTestCase
     }
 
     #[Test]
+    public function a_member_is_never_shown_their_own_activity(): void
+    {
+        $this->extend((new \Ernestdefoe\Buzz\Extend\Buzz())->type('acme.win', 'fas fa-trophy', 'ernestdefoe-buzz.forum.event.member'));
+        $this->boot();
+        $recorder = $this->app()->getContainer()->make(Recorder::class);
+        $recorder->record('member', User::find(2));
+        $recorder->record('acme.win', User::find(2));
+        $recorder->record('member', User::find(2), [], ['anonymous' => true, 'members_only' => true]);
+        $this->insertEvent('member', null);
+
+        foreach ([['after' => 0], ['recent' => 9]] as $query) {
+            $own = $this->poll(2, $query)['body']['events'];
+            $this->assertCount(1, $own, 'only the row with no member: none of their own, named or anonymous, of any type');
+            $this->assertNull($own[0]['user']);
+            $this->assertCount(isset($query['recent']) ? 3 : 4, $this->poll(1, $query)['body']['events'], 'everyone else sees all of it (recent context is capped at 3)');
+        }
+    }
+
+    #[Test]
     public function recent_context_is_at_most_three_rows_from_the_last_hour(): void
     {
         $this->boot();
-        $old = $this->insertEvent('member', 2, ['created_at' => Carbon::now('UTC')->subHours(2)]);
+        $old = $this->insertEvent('member', 1, ['created_at' => Carbon::now('UTC')->subHours(2)]);
         $this->record(5);
 
         foreach ([null, 2] as $as) {
